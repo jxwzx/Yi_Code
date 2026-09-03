@@ -1,42 +1,28 @@
-# YiCode (易码) - AI编程学习平台
+# YiCode 易码 - AI 驱动的编程学习平台
 
-基于Codex开发规格与项目规划书 V0.1
+> 面向初学者与大学生计算机专业的编程学习平台，支持多语言代码执行、AI 助教（小米 MiMo）、代码流程图、局域网协作、课程管理。
 
-## 项目简介
+## 项目特点
 
-YiCode 是一个面向编程学习者的AI辅助学习平台，提供代码空间、实时协作、课堂管理和AI编程助手等功能。
+- **6 种语言运行环境**：Python / JavaScript / C++ / Java / Go / C# 一键运行
+- **小米 MiMo AI 助教**：MiMo-V2.5-Pro 旗舰大模型驱动，代码诊断、优化建议、对话问答
+- **代码流程图自动生成**：静态分析代码结构（if/for/while），生成 Mermaid 可视化流程图
+- **局域网协作编码**：6 位房间码加入，代码实时同步 + 聊天
+- **SQLite 数据持久化**：用户、课程、练习题、代码草稿全部入库
+- **课程引用外部教程**：菜鸟编程、MDN、W3Schools、廖雪峰等
+- **用户登录系统**：注册/登录、等级经验、学习进度跟踪
+- **代码草稿自动保存**：编辑代码自动存入数据库，刷新不丢失
 
 ## 技术栈
 
-- **前端**: Tauri + React + TypeScript
-- **后端**: Python + FastAPI
-- **数据库**: SQLite
-- **实时通信**: WebSocket
-- **代码编辑器**: Monaco Editor
-
-## 项目结构
-
-`
-yicode/
-├── apps/desktop/           # Tauri + React 前端应用
-├── services/local_api/     # FastAPI 本地API服务
-├── services/classroom/     # 课堂管理服务
-├── packages/shared/        # 共享类型、协议、工具
-├── runtime/                # 运行时管理（Python环境）
-├── ai/                     # AI Provider 集成
-├── tests/                  # 测试代码
-│   ├── unit/               # 单元测试
-│   ├── integration/        # 集成测试
-│   ├── network/            # 网络测试
-│   ├── classroom/          # 课堂功能测试
-│   └── e2e/                # 端到端测试
-├── docs/                   # 项目文档
-├── scripts/                # 工具脚本
-├── .env.example            # 环境变量示例
-├── .gitignore              # Git忽略文件
-├── pyproject.toml          # Python项目配置
-└── README.md               # 项目说明
-`
+| 层 | 技术 | 说明 |
+|---|---|---|
+| 前端 | React 18 + TypeScript + Vite | SPA 单页应用，深色玻璃拟态 UI |
+| 后端 | Python + FastAPI | RESTful API + WebSocket |
+| 数据库 | SQLite | 用户/课程/练习/草稿持久化 |
+| 实时通信 | WebSocket | 局域网协作代码同步 |
+| AI | 小米 MiMo-V2.5-Pro | 代码诊断/解释/生成/对话问答 |
+| 流程图 | Mermaid.js + 静态代码分析 | 自动生成代码执行流程图 |
 
 ## 快速开始
 
@@ -44,83 +30,229 @@ yicode/
 
 - Python 3.11+
 - Node.js 18+
-- Rust (用于Tauri)
 
-### 安装
+### 1. 克隆仓库
 
-1. 克隆仓库
-   `ash
-   git clone <repository-url>
-   cd yicode
-   `
+```bash
+git clone https://github.com/你的用户名/yicode.git
+cd yicode
+```
 
-2. 安装Python依赖
-   `ash
-   cd services/local_api
-   pip install -r requirements.txt
-   `
+### 2. 配置 AI API Key
 
-3. 安装前端依赖
-   `ash
-   cd apps/desktop
-   npm install
-   `
+在项目根目录创建 `.env` 文件（已被 `.gitignore` 忽略，不会提交到 GitHub）：
 
-4. 配置环境变量
-   `ash
-   cp .env.example .env
-   # 编辑 .env 文件，填入必要的配置
-   `
+```env
+# 小米 MiMo AI API（https://platform.xiaomimimo.com/ 获取）
+MIMO_API_KEY=sk-你的API密钥
+MIMO_BASE_URL=https://api.xiaomimimo.com/v1
+MIMO_MODEL=mimo-v2.5-pro
+```
 
-### 运行
+> 未配置 API Key 时，AI 助教自动回退到本地规则匹配模式。
 
-1. 启动本地API服务
-   `ash
-   cd services/local_api
-   python main.py
-   `
+### 3. 安装后端依赖
 
-2. 启动前端开发服务器
-   `ash
-   cd apps/desktop
-   npm run dev
-   `
+```bash
+pip install fastapi uvicorn[standard] pydantic websockets
+```
 
-## 开发阶段
+### 4. 安装前端依赖
 
-- **M0**: 项目脚手架 - 基础结构、配置、数据库
-- **M1**: 代码空间 - 项目管理、文件编辑、Python运行
-- **M2**: 运行时管理 - Python环境检测、版本管理、pip管理
-- **M3**: 课堂管理 - 教室服务、控制台、WebSocket
-- **M4**: 教学功能 - 互动、作业、广播、项目提交
-- **M5**: AI Provider - 提示词、代码补全、配置
-- **M6**: 测试发布 - E2E测试、性能测试、安装包
+```bash
+cd apps/desktop
+npm install
+cd ../..
+```
 
-## 测试
+### 5. 启动后端服务
 
-`ash
-# 运行单元测试
-cd tests/unit
-pytest
+```bash
+python -m services.local_api.main
+```
 
-# 运行集成测试
-cd tests/integration
-pytest
-`
+后端运行在 `http://localhost:8000`
+
+### 6. 启动前端开发服务器
+
+```bash
+cd apps/desktop
+npm run dev
+```
+
+前端运行在 `http://localhost:1420`
+
+### 7. 打开浏览器
+
+访问 `http://localhost:1420`，使用演示账号登录：
+- 用户名：`编程学习者`
+- 密码：`123456`
+
+## 功能模块
+
+### 1. 学习仪表盘 (Dashboard)
+- 学习统计：等级、经验、连续学习天数
+- 排行榜
+- 学习任务清单
+- 最近活动记录
+- 课程进度概览
+
+### 2. 学习中心 (LearnCenter)
+- 练习题库（10 道题，按难度/语言筛选）
+- 点击题目 → 编辑器自动加载对应语言初始代码
+- 随机挑战一题
+
+### 3. 代码实验室 (CodeEditor)
+- 6 种语言代码编辑与执行
+- 题目横幅：显示当前题目标题、难度、描述
+- 代码草稿自动保存（debounce 2 秒存入 SQLite）
+- 刷新页面自动恢复题目和代码
+- 保存状态指示器：保存中... → 已保存
+
+### 4. 我的课堂 (ClassroomView)
+- 6 门编程课程（Python/JS/C++/Java/Go/C#）
+- 每门课程 8-10 个章节
+- 章节引用外部教学网站：
+  - 菜鸟编程 (runoob.com)
+  - MDN Web Docs
+  - W3Schools
+  - 廖雪峰 Python 教程
+  - GeeksforGeeks
+  - Go 官方 Tour
+  - 微软官方文档
+- 点击章节直接跳转外部教程
+
+### 5. AI 编程助教（小米 MiMo）
+- 代码诊断：检查代码问题和潜在 bug
+- 优化建议：代码改进和性能优化
+- 对话问答：编程问题咨询
+- 代码解释：逐行讲解代码逻辑
+- 代码生成：根据描述生成代码
+- 由 MiMo-V2.5-Pro 旗舰大模型驱动（未配置时回退到本地规则匹配）
+
+### 6. 代码流程图 (FlowchartView)
+- 输入任意语言代码，自动分析生成 Mermaid 流程图
+- 识别控制结构：if/elif/else、for、while、switch/case、return、break、continue
+- 自动检测语言（Python/JS/C++/Java/Go/C#）
+- 3 个示例代码快捷加载
+- 导出 SVG 文件
+- 统计信息（语言/节点数/代码行数）
+
+### 7. 局域网协作 (CollabChannel)
+- 6 位数字房间码加入
+- 代码实时同步（WebSocket）
+- 聊天功能
+- 角色管理（房主/学生）
+- 房间空闲 5 分钟自动清理
+- 局域网访问：`http://你的IP:1420/?room=房间码`
+
+### 8. 环境检查 (EnvCheck)
+- 检测 6 种语言运行环境状态
+- 显示版本号和安装路径
+- 一键自检：逐语言执行测试代码
+
+### 9. 用户系统
+- 注册/登录（SHA-256 密码哈希）
+- 登录状态持久化（localStorage）
+- 用户等级和经验值
+- 退出登录
+
+## API 文档
+
+后端启动后访问 `http://localhost:8000/docs` 查看 FastAPI 自动生成的交互式 API 文档。
+
+### 主要 API
+
+| 分类 | 接口 | 说明 |
+|---|---|---|
+| 认证 | `POST /auth/register` | 用户注册 |
+| 认证 | `POST /auth/login` | 用户登录 |
+| 仪表盘 | `GET /users/{id}/dashboard` | 获取仪表盘数据 |
+| 课程 | `GET /courses` | 课程列表 |
+| 课程 | `GET /courses/{id}` | 课程详情+章节 |
+| 练习题 | `GET /exercises` | 练习题列表 |
+| 代码执行 | `POST /run-code` | 执行代码 |
+| AI 助教 | `POST /ai/chat` | AI 对话（MiMo） |
+| AI 助教 | `POST /ai/diagnose` | 代码诊断 |
+| AI 助教 | `POST /ai/explain` | 代码解释 |
+| AI 助教 | `POST /ai/optimize` | 优化建议 |
+| 流程图 | `POST /ai/flowchart` | 代码生成 Mermaid 流程图 |
+| 草稿 | `POST /drafts` | 保存代码草稿 |
+| 草稿 | `GET /drafts/{uid}/latest` | 获取最新草稿 |
+| 协作 | `POST /rooms` | 创建房间 |
+| 协作 | `WS /ws/room/{code}` | 加入房间 |
+
+## 项目结构
+
+```
+yicode/
+├── apps/
+│   └── desktop/               # React + TypeScript 前端
+│       ├── src/
+│       │   ├── App.tsx        # 主组件（所有页面和组件）
+│       │   └── App.css        # 全局样式
+│       ├── vite.config.ts     # Vite 配置
+│       └── package.json
+├── services/
+│   └── local_api/             # FastAPI 后端
+│       ├── main.py            # API 入口（所有路由）
+│       ├── database.py        # SQLite 数据库模块
+│       └── requirements.txt   # Python 依赖
+├── runtime/
+│   └── manager.py             # 多语言运行时管理器
+├── ai/
+│   ├── provider.py            # AI Provider（MiMo + Local）
+│   └── flowchart.py           # 代码流程图生成器（静态分析）
+├── data/
+│   └── yicode.db              # SQLite 数据库（自动创建）
+├── _tools/                    # 工具脚本
+├── .env                       # 环境变量（API Key，不提交）
+├── .gitignore
+├── CHANGELOG.md               # 更新日志
+├── pyproject.toml
+└── README.md
+```
+
+## 数据库结构
+
+| 表名 | 说明 |
+|---|---|
+| `users` | 用户信息（用户名、密码哈希、等级、经验） |
+| `courses` | 课程信息（标题、语言、难度、分类） |
+| `lessons` | 课程章节（标题、外部链接、来源站点） |
+| `exercises` | 练习题（描述、初始代码、参考答案、通过率） |
+| `code_drafts` | 代码草稿（用户+题目+代码，自动保存） |
+| `learning_progress` | 学习进度（用户+课程+进度百分比） |
+| `study_tasks` | 学习任务 |
+| `activities` | 活动记录 |
+| `leaderboard` | 排行榜 |
+
+## 开发说明
+
+### 前端开发
+
+前端使用 Vite HMR 热更新，修改 `App.tsx` 或 `App.css` 后自动刷新。
+
+### 后端开发
+
+后端使用 uvicorn reload 模式，修改 Python 文件后自动重启。
+
+### 数据库
+
+SQLite 数据库文件位于 `data/yicode.db`，首次启动后端时自动创建表并填充初始数据。
 
 ## 贡献指南
 
-1. Fork 项目
-2. 创建功能分支 (git checkout -b feature/AmazingFeature)
-3. 提交更改 (git commit -m 'Add some AmazingFeature')
-4. 推送到分支 (git push origin feature/AmazingFeature)
+1. Fork 本仓库
+2. 创建功能分支 (`git checkout -b feature/新功能`)
+3. 提交更改 (`git commit -m '添加新功能'`)
+4. 推送到分支 (`git push origin feature/新功能`)
 5. 创建 Pull Request
+
+## 更新日志
+
+详见 [CHANGELOG.md](CHANGELOG.md)
 
 ## 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
-## 联系我们
-
-- 项目主页: [https://github.com/yicode/yicode](https://github.com/yicode/yicode)
-- 问题反馈: [https://github.com/yicode/yicode/issues](https://github.com/yicode/yicode/issues)

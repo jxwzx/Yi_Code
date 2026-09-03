@@ -36,9 +36,10 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Database
+# Database (不提交本地数据库和运行时编译产物)
 *.db
 *.sqlite3
+data/
 
 # Logs
 *.log
@@ -55,3 +56,12 @@ src-tauri/target/
 # Build
 dist/
 build/
+
+# 运行时编译产物
+*.exe
+*.out
+*.dll
+
+# 工具下载目录
+_tools/mingw64/
+_tools/llvm-mingw/
