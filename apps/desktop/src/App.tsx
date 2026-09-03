@@ -94,58 +94,6 @@ class Program
 }`
 }
 
-// ============== 流程图 Mermaid 模板 ==============
-const FLOWCHARTS = {
-  fibonacci: `flowchart TD
-    A([开始]) --> B[输入 n]
-    B --> C{n <= 0?}
-    C -->|是| D[返回空列表]
-    C -->|否| E{n == 1?}
-    E -->|是| F[返回 [0]]
-    E -->|否| G[初始化 result = [0, 1]]
-    G --> H[i = 2]
-    H --> I{i < n?}
-    I -->|是| J[result[i-1]+result[i-2]]
-    J --> K[添加到 result]
-    K --> L[i++]
-    L --> I
-    I -->|否| M([返回 result 结束])
-    D --> M
-    F --> M
-    style A fill:#10b981,stroke:#fff,color:#fff
-    style M fill:#ef4444,stroke:#fff,color:#fff`,
-  bubbleSort: `flowchart TD
-    A([开始]) --> B[获取数组 arr]
-    B --> C[i = 0]
-    C --> D{i < len-1?}
-    D -->|否| L([排序完成])
-    D -->|是| E[j = 0]
-    E --> F{j < len-1-i?}
-    F -->|否| G[i++]
-    G --> D
-    F -->|是| H{arr[j] > arr[j+1]?}
-    H -->|否| I[j++]
-    H -->|是| J[交换两者位置]
-    J --> I
-    I --> F
-    style A fill:#10b981,color:#fff
-    style L fill:#14b8a6,color:#fff`,
-  binarySearch: `flowchart TD
-    A([开始 输入 arr, target]) --> B[left=0, right=len-1]
-    B --> C{left <= right?}
-    C -->|否| K[返回 -1 未找到]
-    C -->|是| D[mid = left+right / 2]
-    D --> E{arr[mid] == target?}
-    E -->|是| F([返回 mid 找到!])
-    E -->|否| G{arr[mid] < target?}
-    G -->|是| H[left = mid+1]
-    G -->|否| I[right = mid-1]
-    H --> C
-    I --> C
-    style F fill:#10b981,color:#fff
-    style K fill:#ef4444,color:#fff`
-}
-
 // ============== 主组件 ==============
 export default function App() {
   const [page, setPage] = useState<PageKey>(() => {
@@ -153,7 +101,7 @@ export default function App() {
       return (localStorage.getItem('yicode_page') as PageKey) || 'dashboard'
     } catch { return 'dashboard' }
   })
-  const [runStatus, setRunStatus] = useState<{ id: string; logFile: string } | null>(null)
+  const [, setRunStatus] = useState<{ id: string; logFile: string } | null>(null)
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => {
     // 从 localStorage 恢复登录状态
     try {
@@ -275,6 +223,8 @@ function LoginPage({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
           level: 1,
           xp: 0,
           streak_days: 1,
+          role: 'student',
+          target_id: null,
         })
       }
     } catch (err: any) {
@@ -454,6 +404,37 @@ function Topbar({ icon, title, setRunStatus, user, onLogout, searchQuery, setSea
   user: CurrentUser; onLogout: () => void
   searchQuery: string; setSearchQuery: (q: string) => void
 }) {
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('yicode_ai_token') || '')
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
+  const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('yicode_theme') !== 'light')
+
+  const saveApiKey = () => {
+    localStorage.setItem('yicode_ai_token', apiKey)
+    setShowApiKeyInput(false)
+  }
+
+  const notifications = [
+    { id: 1, text: '欢迎使用 YiCode 编程平台！', time: '刚刚', read: false },
+    { id: 2, text: 'AI 助教已就绪，随时为你解答问题', time: '1 分钟前', read: false },
+    { id: 3, text: '完成每日编程挑战，获取 XP 奖励', time: '5 分钟前', read: true },
+  ]
+
+  const toggleTheme = () => {
+    const newTheme = isDarkTheme ? 'light' : 'dark'
+    setIsDarkTheme(!isDarkTheme)
+    localStorage.setItem('yicode_theme', newTheme)
+    document.documentElement.setAttribute('data-theme', newTheme)
+  }
+
+  // 初始化主题
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('yicode_theme') || 'dark'
+    document.documentElement.setAttribute('data-theme', savedTheme)
+  }, [])
+
   useEffect(() => {
     // 组件挂载时轮询一次任务状态（展示链路打通）
     fetch('http://localhost:8000/tasks')
@@ -492,17 +473,131 @@ function Topbar({ icon, title, setRunStatus, user, onLogout, searchQuery, setSea
           </button>
         )}
       </div>
+      {/* AI 设置齿轮 */}
+      <div style={{ position: 'relative' }}>
+        <button
+          className="icon-btn"
+          title="AI 设置"
+          onClick={() => setShowApiKeyInput(!showApiKeyInput)}
+        >
+          <i className="fas fa-cog"></i>
+        </button>
+        {showApiKeyInput && (
+          <div style={{
+            position: 'absolute', top: '100%', right: 0, marginTop: '8px',
+            background: 'var(--bg-card)', border: '1px solid var(--border)',
+            borderRadius: '10px', padding: '14px 16px', boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+            zIndex: 9999, minWidth: '260px',
+          }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '10px', color: 'var(--text-primary)' }}>
+              <i className="fas fa-key" style={{ marginRight: '6px', color: 'var(--primary-light)' }}></i>
+              MiMo API Key
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <div style={{
+                flex: 1, display: 'flex', alignItems: 'center', gap: '6px',
+                background: 'var(--bg-main)', border: '1px solid var(--border)',
+                borderRadius: '6px', padding: '6px 10px',
+              }}>
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={e => setApiKey(e.target.value)}
+                  placeholder="输入 API Key"
+                  style={{
+                    background: 'transparent', border: 'none', color: 'var(--text-primary)',
+                    fontSize: '13px', width: '100%', outline: 'none', padding: '0',
+                  }}
+                />
+                <button
+                  className="icon-btn"
+                  style={{ padding: '2px', fontSize: '10px', flexShrink: 0 }}
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  title={showApiKey ? '隐藏' : '显示'}
+                >
+                  <i className={`fas ${showApiKey ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                </button>
+              </div>
+              <button
+                className="btn btn-primary"
+                style={{ padding: '6px 12px', fontSize: '12px' }}
+                onClick={saveApiKey}
+              >
+                保存
+              </button>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
+              用于 AI 助教的智能回复
+            </div>
+          </div>
+        )}
+      </div>
       <div className="topbar-actions">
-        <button className="icon-btn" title="帮助">
-          <i className="fas fa-question"></i>
+        {/* 帮助按钮 */}
+        <div style={{ position: 'relative' }}>
+          <button className="icon-btn" title="帮助" onClick={() => { setShowHelp(!showHelp); setShowNotifications(false) }}>
+            <i className="fas fa-question"></i>
+          </button>
+          {showHelp && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: '8px',
+              background: 'var(--bg-card)', border: '1px solid var(--border)',
+              borderRadius: '10px', padding: '16px', boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+              zIndex: 9999, minWidth: '280px',
+            }}>
+              <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>
+                <i className="fas fa-question-circle" style={{ marginRight: '8px', color: 'var(--primary-light)' }}></i>
+                快捷键帮助
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+                <div><kbd>Ctrl</kbd> + <kbd>Enter</kbd> - 运行代码</div>
+                <div><kbd>Ctrl</kbd> + <kbd>S</kbd> - 保存草稿</div>
+                <div><kbd>Ctrl</kbd> + <kbd>/</kbd> - 注释代码</div>
+                <div><kbd>Esc</kbd> - 清除搜索</div>
+              </div>
+              <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)', fontSize: '12px', color: 'var(--text-muted)' }}>
+                YiCode v0.13.0 · 智能编程学习平台
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 消息通知按钮 */}
+        <div style={{ position: 'relative' }}>
+          <button className="icon-btn" title="消息" onClick={() => { setShowNotifications(!showNotifications); setShowHelp(false) }}>
+            <i className="fas fa-bell"></i>
+            <span className="notif-dot"></span>
+          </button>
+          {showNotifications && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: '8px',
+              background: 'var(--bg-card)', border: '1px solid var(--border)',
+              borderRadius: '10px', padding: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+              zIndex: 9999, minWidth: '300px', maxHeight: '400px', overflowY: 'auto',
+            }}>
+              <div style={{ padding: '8px 12px', fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border)' }}>
+                <i className="fas fa-bell" style={{ marginRight: '8px', color: 'var(--primary-light)' }}></i>
+                消息通知
+              </div>
+              {notifications.map(n => (
+                <div key={n.id} style={{
+                  padding: '12px', borderRadius: '8px', marginTop: '4px',
+                  background: n.read ? 'transparent' : 'rgba(99, 102, 241, 0.1)',
+                  cursor: 'pointer',
+                }}>
+                  <div style={{ fontSize: '13px', color: 'var(--text-primary)', marginBottom: '4px' }}>{n.text}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{n.time}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 主题切换按钮 */}
+        <button className="icon-btn" title={isDarkTheme ? '切换到亮色主题' : '切换到暗色主题'} onClick={toggleTheme}>
+          <i className={`fas ${isDarkTheme ? 'fa-sun' : 'fa-moon'}`}></i>
         </button>
-        <button className="icon-btn" title="消息">
-          <i className="fas fa-bell"></i>
-          <span className="notif-dot"></span>
-        </button>
-        <button className="icon-btn" title="主题">
-          <i className="fas fa-moon"></i>
-        </button>
+
         <div className="topbar-user">
           <div className="topbar-avatar">{user.avatar}</div>
           <span className="topbar-username">{user.username}</span>
@@ -536,11 +631,6 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
   const [learningProgress, setLearningProgress] = useState<Array<{
     course_id?: number; progress_pct?: number
   }>>([])
-  // API Key 设置
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('yicode_ai_token') || '')
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false)
-  const [showApiKey, setShowApiKey] = useState(false)
-
   const loadDashboard = async () => {
     try {
       const resp = await fetch(`http://localhost:8000/users/${userId}/dashboard`)
@@ -632,11 +722,6 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
     }
   }
 
-  const saveApiKey = () => {
-    localStorage.setItem('yicode_ai_token', apiKey)
-    setShowApiKeyInput(false)
-  }
-
   if (loading) {
     return (
       <div className="fade-in" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '80px 0' }}>
@@ -654,70 +739,6 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
 
   return (
     <div className="fade-in">
-      {/* 仪表盘标题栏 */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '16px' }}>
-        <div style={{ position: 'relative' }}>
-          <button
-            className="icon-btn"
-            title="AI 设置"
-            onClick={() => setShowApiKeyInput(!showApiKeyInput)}
-            style={{ fontSize: '16px' }}
-          >
-            <i className="fas fa-cog"></i>
-          </button>
-          {/* API Key 输入弹出框 */}
-          {showApiKeyInput && (
-            <div style={{
-              position: 'absolute', top: '100%', right: 0, marginTop: '8px',
-              background: 'var(--bg-card)', border: '1px solid var(--border)',
-              borderRadius: '10px', padding: '14px 16px', boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-              zIndex: 100, minWidth: '260px',
-            }}>
-              <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '10px', color: 'var(--text-primary)' }}>
-                <i className="fas fa-key" style={{ marginRight: '6px', color: 'var(--primary-light)' }}></i>
-                MiMo API Key
-              </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <div style={{
-                  flex: 1, display: 'flex', alignItems: 'center', gap: '6px',
-                  background: 'var(--bg-main)', border: '1px solid var(--border)',
-                  borderRadius: '6px', padding: '6px 10px',
-                }}>
-                  <input
-                    type={showApiKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={e => setApiKey(e.target.value)}
-                    placeholder="输入 API Key"
-                    style={{
-                      background: 'transparent', border: 'none', color: 'var(--text-primary)',
-                      fontSize: '13px', width: '100%', outline: 'none', padding: '0',
-                    }}
-                  />
-                  <button
-                    className="icon-btn"
-                    style={{ padding: '2px', fontSize: '10px', flexShrink: 0 }}
-                    onClick={() => setShowApiKey(!showApiKey)}
-                    title={showApiKey ? '隐藏' : '显示'}
-                  >
-                    <i className={`fas ${showApiKey ? 'fa-eye-slash' : 'fa-eye'}`}></i>
-                  </button>
-                </div>
-                <button
-                  className="btn btn-primary"
-                  style={{ padding: '6px 12px', fontSize: '12px' }}
-                  onClick={saveApiKey}
-                >
-                  保存
-                </button>
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
-                用于 AI 助教的智能回复
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
       <div className="dashboard-grid">
         {statCards.map((s, i) => (
           <div key={i} className={`stat-card ${s.cls}`}>
@@ -834,7 +855,7 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
 }
 
 // ============== 代码编辑器 ==============
-function CodeEditor({ onRunStatus, exercise, onClearExercise, userId }: {
+function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId }: {
   onRunStatus: (s: { id: string; logFile: string } | null) => void
   exercise: Exercise | null
   onClearExercise: () => void
@@ -1080,7 +1101,7 @@ function CodeEditor({ onRunStatus, exercise, onClearExercise, userId }: {
                 {showLangMenu && (
                   <div style={{
                     position: 'absolute', top: '100%', left: 0, marginTop: '6px',
-                    background: 'rgba(10, 15, 30, 0.95)', border: '1px solid var(--border)',
+                    background: 'var(--bg-card)', border: '1px solid var(--border)',
                     borderRadius: '10px', padding: '6px', zIndex: 100, minWidth: '200px',
                     backdropFilter: 'blur(12px)', boxShadow: 'var(--shadow-lg)'
                   }}>
@@ -1527,8 +1548,8 @@ function buildLocalAIReply(msg: string, code: string, lang: LangKey): AIMessage 
 }
 
 // ============== 简单的静态代码问题检测 ==============
-function detectIssues(code: string, lang: LangKey): AIMessage['issues'] {
-  const issues: AIMessage['issues'] = []
+function detectIssues(code: string, lang: LangKey): NonNullable<AIMessage['issues']> {
+  const issues: NonNullable<AIMessage['issues']> = []
   const lines = code.split('\n')
 
   if (lang === 'py') {
@@ -1744,7 +1765,7 @@ function FlowchartView() {
               id="mermaid-canvas"
               style={{
                 width: '100%',
-                background: 'rgba(15, 23, 42, 0.6)',
+                background: 'var(--bg-card)',
                 borderRadius: '16px',
                 padding: '30px',
                 border: '1px solid var(--border)',
@@ -1867,7 +1888,7 @@ const COLLAB_LANGS: { key: LangKey; label: string }[] = [
 const COLLAB_ENTRY_INPUT = {
   width: '100%',
   padding: '11px 14px',
-  background: 'rgba(15, 23, 42, 0.6)',
+  background: 'var(--bg-card)',
   border: '1px solid var(--border)',
   borderRadius: 'var(--radius-sm)',
   color: 'var(--text-primary)',
@@ -2130,7 +2151,7 @@ function CollabChannel() {
                   <i className="fas fa-share-alt"></i> {copied === 'url' ? '已复制' : '复制分享链接'}
                 </button>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', background: 'rgba(15,23,42,0.6)', padding: '8px 10px', borderRadius: 8, lineHeight: 1.6, wordBreak: 'break-all' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg-main)', padding: '8px 10px', borderRadius: 8, lineHeight: 1.6, wordBreak: 'break-all', border: '1px solid var(--border)' }}>
                 分享链接：{created.share_url}<br />其他同学打开该链接或输入房间码即可加入。
               </div>
               <button className="btn btn-success" style={{ width: '100%', justifyContent: 'center' }} onClick={enterCreated}>
@@ -2247,7 +2268,7 @@ function CollabChannel() {
                 <strong style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <i className="fas fa-file-code" style={{ color: 'var(--primary-light)' }}></i> 共享代码
                 </strong>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', padding: '3px 8px', background: 'rgba(15,23,42,0.6)', borderRadius: 5 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', padding: '3px 8px', background: 'var(--bg-main)', borderRadius: 5, border: '1px solid var(--border)' }}>
                   <i className="fas fa-share-alt" style={{ marginRight: 4 }}></i>实时同步中
                 </span>
                 <select value={lang} onChange={e => onLangChange(e.target.value as LangKey)} style={{ fontSize: 12, padding: '4px 8px' }}>
@@ -2726,11 +2747,7 @@ function ClassroomView({ setPage }: { setPage: (p: PageKey) => void }) {
     return '#6366f1'
   }
 
-  const studentColors = ['#ef4444', '#f59e0b', '#6366f1', '#14b8a6', '#ec4899', '#3b82f6', '#8b5cf6', '#f97316']
-  const genAvatars = (count: number): Array<[string, string]> => {
-    const n = Math.min(5, Math.max(1, count))
-    return Array.from({ length: n }, (_, k) => [String.fromCharCode(65 + k), studentColors[k % studentColors.length]] as [string, string])
-  }
+  // 课程卡片渲染逻辑已更新，不再需要 genAvatars
 
   // ====== 章节列表视图（点击课程后展开） ======
   if (selectedCourse) {
@@ -2772,7 +2789,7 @@ function ClassroomView({ setPage }: { setPage: (p: PageKey) => void }) {
             </div>
           ) : lessons.length === 0 ? (
             <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>暂无章节</div>
-          ) : lessons.map((ls, idx) => (
+          ) : lessons.map((ls) => (
             <div key={ls.id} style={{
               display: 'flex', alignItems: 'center', gap: '16px', padding: '16px 20px',
               background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
@@ -3187,19 +3204,19 @@ function EnvCheck() {
 
       {/* 统计概览 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
-        <div className="stat-card" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(15,23,42,0.8))' }}>
+        <div className="stat-card" style={{ background: 'var(--bg-card)', borderLeft: '4px solid #10b981' }}>
           <div style={{ fontSize: '28px', fontWeight: 800, color: '#10b981' }}>
             {allEntries.filter(([, r]) => r.available).length}
           </div>
           <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>已就绪</div>
         </div>
-        <div className="stat-card" style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.15), rgba(15,23,42,0.8))' }}>
+        <div className="stat-card" style={{ background: 'var(--bg-card)', borderLeft: '4px solid #ef4444' }}>
           <div style={{ fontSize: '28px', fontWeight: 800, color: '#ef4444' }}>
             {allEntries.filter(([, r]) => !r.available).length}
           </div>
           <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>未安装</div>
         </div>
-        <div className="stat-card" style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(15,23,42,0.8))' }}>
+        <div className="stat-card" style={{ background: 'var(--bg-card)', borderLeft: '4px solid var(--primary)' }}>
           <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--primary-light)' }}>
             {allEntries.length || 6}
           </div>
@@ -3263,8 +3280,9 @@ function EnvCheck() {
             {info.path && (
               <div style={{
                 fontSize: '11px', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace",
-                background: 'rgba(15,23,42,0.6)', padding: '4px 8px', borderRadius: '4px',
+                background: 'var(--bg-main)', padding: '4px 8px', borderRadius: '4px',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: '8px',
+                border: '1px solid var(--border)',
               }}>
                 <i className="fas fa-folder-open" style={{ marginRight: '6px' }}></i>{info.path}
               </div>
@@ -3580,8 +3598,8 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
             {/* 统计信息 */}
             <div style={{
               marginTop: '20px', padding: '16px', borderRadius: '10px',
-              background: 'rgba(15,23,42,0.4)', display: 'flex', gap: '24px',
-              fontSize: '13px', color: 'var(--text-secondary)',
+              background: 'var(--bg-main)', display: 'flex', gap: '24px',
+              fontSize: '13px', color: 'var(--text-secondary)', border: '1px solid var(--border)',
             }}>
               <div><i className="fas fa-users" style={{ marginRight: '6px' }}></i>总用户: {users.length}</div>
               <div><i className="fas fa-crown" style={{ marginRight: '6px', color: '#ef4444' }}></i>超管: {users.filter(u => u.role === 'super_admin').length}</div>

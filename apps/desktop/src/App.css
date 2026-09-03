@@ -10,6 +10,7 @@
   --success: #10b981;
   --bg-dark: #0f172a;
   --bg-darker: #0a0f1e;
+  --bg-main: #0f172a;
   --bg-card: rgba(30, 41, 59, 0.7);
   --bg-card-hover: rgba(51, 65, 85, 0.8);
   --border: rgba(148, 163, 184, 0.15);
@@ -25,6 +26,481 @@
   --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.4);
   --glow-primary: 0 0 20px rgba(99, 102, 241, 0.3);
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 亮色主题 */
+[data-theme="light"] {
+  --bg-dark: #f8fafc;
+  --bg-darker: #f1f5f9;
+  --bg-main: #ffffff;
+  --bg-card: rgba(255, 255, 255, 0.9);
+  --bg-card-hover: rgba(241, 245, 249, 0.95);
+  --border: rgba(148, 163, 184, 0.2);
+  --border-light: rgba(148, 163, 184, 0.35);
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.12);
+  --glow-primary: 0 0 20px rgba(99, 102, 241, 0.15);
+}
+
+/* 亮色主题下的特殊元素 */
+[data-theme="light"] .search-box input {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .search-box input:focus {
+  background: #ffffff;
+}
+
+[data-theme="light"] .icon-btn {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+[data-theme="light"] .icon-btn:hover {
+  background: #e2e8f0;
+}
+
+[data-theme="light"] .btn-secondary {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .btn-secondary:hover {
+  background: #e2e8f0;
+}
+
+[data-theme="light"] .topbar-user {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .notif-dot {
+  background: #ef4444;
+}
+
+/* 亮色主题 - AI 面板 */
+[data-theme="light"] .ai-header {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(236, 72, 153, 0.05) 100%);
+}
+
+[data-theme="light"] .ai-msg.assistant .msg-bubble {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(20, 184, 166, 0.05) 100%);
+  border-color: rgba(99, 102, 241, 0.15);
+}
+
+[data-theme="light"] .ai-msg.user .msg-bubble {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.08) 0%, rgba(99, 102, 241, 0.05) 100%);
+  border-color: rgba(236, 72, 153, 0.15);
+}
+
+[data-theme="light"] .ai-input-wrap {
+  background: #f8fafc;
+}
+
+[data-theme="light"] .ai-input {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .ai-input:focus-within {
+  background: #ffffff;
+}
+
+[data-theme="light"] .ai-action-btn {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+[data-theme="light"] .ai-action-btn:hover {
+  background: #e2e8f0;
+}
+
+/* 亮色主题 - 输出面板 */
+[data-theme="light"] .output-panel {
+  background: #f8fafc;
+}
+
+/* 亮色主题 - 代码编辑器 */
+[data-theme="light"] .code-textarea {
+  color: #0f172a;
+}
+
+/* 亮色主题 - 聊天输入 */
+[data-theme="light"] .chat-input-row input {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+/* 亮色主题 - 表单输入 */
+[data-theme="light"] .form-field input {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+/* 亮色主题 - 频道搜索 */
+[data-theme="light"] .channel-search input {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+/* 亮色主题 - 课程卡片 */
+[data-theme="light"] .class-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .class-card:hover {
+  border-color: var(--primary);
+}
+
+/* 亮色主题 - 统计卡片 */
+[data-theme="light"] .stat-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+/* 亮色主题 - 面板 */
+[data-theme="light"] .panel {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+/* 亮色主题 - 用户卡片 */
+[data-theme="light"] .user-card {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+/* 亮色主题 - 通用深色背景覆盖 */
+[data-theme="light"] .learning-card,
+[data-theme="light"] .rank-item,
+[data-theme="light"] .todo-item,
+[data-theme="light"] .activity-item,
+[data-theme="light"] .env-item,
+[data-theme="light"] .channel-item,
+[data-theme="light"] .lesson-item,
+[data-theme="light"] .issue-card,
+[data-theme="light"] .chat-msg,
+[data-theme="light"] .member-item,
+[data-theme="light"] .admin-user-card {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .learning-card:hover,
+[data-theme="light"] .rank-item:hover,
+[data-theme="light"] .todo-item:hover,
+[data-theme="light"] .channel-item:hover {
+  background: #f1f5f9;
+}
+
+[data-theme="light"] .code-editor-wrap,
+[data-theme="light"] .collab-editor,
+[data-theme="light"] .flowchart-container,
+[data-theme="light"] .chat-messages,
+[data-theme="light"] .admin-content,
+[data-theme="light"] .env-grid {
+  background: #f8fafc;
+}
+
+[data-theme="light"] .issue-card.warning {
+  background: #fffbeb;
+  border-color: #fbbf24;
+}
+
+[data-theme="light"] .issue-card.info {
+  background: #eff6ff;
+  border-color: #60a5fa;
+}
+
+[data-theme="light"] .progress-bar {
+  background: #e2e8f0;
+}
+
+[data-theme="light"] .lesson-card,
+[data-theme="light"] .exercise-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .lesson-card:hover,
+[data-theme="light"] .exercise-card:hover {
+  border-color: var(--primary);
+}
+
+/* 亮色主题 - 登录页面 */
+[data-theme="light"] .login-container {
+  background: linear-gradient(135deg, #f8fafc 0%, #e0e7ff 50%, #f8fafc 100%);
+}
+
+[data-theme="light"] .login-card {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: #e2e8f0;
+}
+
+/* 亮色主题 - 按钮 */
+[data-theme="light"] .btn-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+}
+
+[data-theme="light"] .difficulty-tag,
+[data-theme="light"] .lang-tag {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+/* 亮色主题 - 侧边栏导航 */
+[data-theme="light"] .nav-item {
+  color: #475569;
+}
+
+[data-theme="light"] .nav-item:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+[data-theme="light"] .nav-item.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(236, 72, 153, 0.08) 100%);
+  color: var(--primary);
+}
+
+[data-theme="light"] .nav-badge {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+[data-theme="light"] .sidebar-nav::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
+/* 亮色主题 - 流程图 */
+[data-theme="light"] .flowchart-pane {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .flowchart-canvas {
+  background: radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.15) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+[data-theme="light"] .flowchart-tools {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .flowchart-code {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .flowchart-stats {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+/* 亮色主题 - 协作频道 */
+[data-theme="light"] .channel-list {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .channel-header {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .channel-search input {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .channel-item:hover {
+  background: #f1f5f9;
+}
+
+[data-theme="light"] .channel-item.active {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.1) 0%, rgba(99, 102, 241, 0.03));
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+[data-theme="light"] .collab-code {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .collab-editor {
+  background: #ffffff;
+}
+
+[data-theme="light"] .collab-chat {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .chat-header {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .chat-messages {
+  background: #f8fafc;
+}
+
+[data-theme="light"] .chat-msg {
+  background: #f1f5f9;
+}
+
+[data-theme="light"] .chat-input-area {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .chat-input-row input {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .collab-members {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .member-item {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .member-item:hover {
+  background: #f1f5f9;
+}
+
+[data-theme="light"] .collab-join {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .room-info {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+/* 亮色主题 - 下拉选项 hover/focus */
+[data-theme="light"] option:hover,
+[data-theme="light"] option:focus {
+  background: #e2e8f0 !important;
+}
+
+/* 亮色主题 - 代码编辑器 */
+[data-theme="light"] .editor-tabs {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .editor-toolbar {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .lang-select {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .code-lines-container {
+  background: #ffffff;
+}
+
+[data-theme="light"] .line-numbers {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #94a3b8;
+}
+
+[data-theme="light"] .save-status {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+/* 亮色主题 - AI 消息内联代码 */
+[data-theme="light"] .msg-bubble code {
+  background: #f1f5f9;
+  color: #e11d48;
+}
+
+/* 亮色主题 - 流程图工具芯片 */
+[data-theme="light"] .tool-chip {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+/* 亮色主题 - 协作用户栏 */
+[data-theme="light"] .collab-users-bar {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .user-chip {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+[data-theme="light"] .code-with-comments {
+  background: #ffffff;
+}
+
+[data-theme="light"] .comment-gutter {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+/* 亮色主题 - 聊天标签 */
+[data-theme="light"] .chat-tabs {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .chat-bubble {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+/* 亮色主题 - 学习中心 Hero 统计 */
+[data-theme="light"] .hero-stats {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+/* 亮色主题 - 登录页标签 */
+[data-theme="light"] .login-tabs {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .login-tabs button {
+  color: #475569;
+}
+
+[data-theme="light"] .login-tabs button.active {
+  background: #ffffff;
+  color: var(--primary);
+}
+
+/* 亮色主题 - 表单输入聚焦态 */
+[data-theme="light"] .form-field input:focus {
+  background: #ffffff;
+  border-color: var(--primary);
 }
 
 * {
@@ -75,9 +551,9 @@ select:focus {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
 }
 
-/* 下拉框选项 - 深色背景 */
+/* 下拉框选项 - 使用主题变量 */
 option {
-  background: #1e293b !important;
+  background: var(--bg-card) !important;
   color: var(--text-primary) !important;
   padding: 10px 14px !important;
   font-size: 13px !important;
@@ -150,7 +626,7 @@ body::before {
 .sidebar {
   width: 260px;
   min-width: 260px;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(10, 15, 30, 0.98) 100%);
+  background: var(--bg-darker);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -327,13 +803,15 @@ body::before {
 .topbar {
   height: 64px;
   min-height: 64px;
-  background: rgba(15, 23, 42, 0.8);
+  background: var(--bg-card);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   padding: 0 24px;
   gap: 16px;
+  position: relative;
+  z-index: 9999;
 }
 
 .topbar-title {
@@ -445,6 +923,8 @@ body::before {
   flex: 1;
   overflow: auto;
   padding: 24px;
+  position: relative;
+  z-index: 1;
 }
 
 /* ============ 仪表盘 ============ */
