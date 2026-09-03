@@ -232,6 +232,117 @@ async def self_test():
     return {"time": datetime.now().isoformat(), "per_language": results}
 
 
+# ============ 环境自动安装 ============
+import threading
+
+# 安装任务状态跟踪
+_install_tasks: Dict[str, Dict[str, Any]] = {}
+
+# 各环境的安装脚本配置
+INSTALL_CONFIG = {
+    "java": {
+        "name": "JDK 21 (Eclipse Temurin)",
+        "script": "_tools/install_jdk.py",
+        "size_mb": "~190MB",
+        "description": "Java 开发环境，包含 javac 编译器和 java 运行时",
+    },
+    "cpp": {
+        "name": "MinGW-w64 GCC (C++编译器)",
+        "script": "_tools/install_mingw.py",
+        "size_mb": "~50MB",
+        "description": "C++ 编译环境，需要 7z 解压支持 (pip install py7zr)",
+    },
+}
+
+@app.post("/install/{env}")
+async def install_env(env: str, background_tasks: BackgroundTasks):
+    """触发环境自动安装（后台执行）"""
+    env = env.lower()
+    if env not in INSTALL_CONFIG:
+        raise HTTPException(404, f"不支持的环境: {env}，支持: {list(INSTALL_CONFIG.keys())}")
+
+    config = INSTALL_CONFIG[env]
+    script_path = str(ROOT / config["script"])
+
+    # 检查脚本是否存在
+    if not os.path.exists(script_path):
+        raise HTTPException(404, f"安装脚本不存在: {config['script']}")
+
+    # 创建任务
+    task_id = f"install_{env}_{uuid.uuid4().hex[:8]}"
+    _install_tasks[task_id] = {
+        "env": env,
+        "name": config["name"],
+        "status": "running",
+        "progress": "开始下载...",
+        "started_at": datetime.now().isoformat(),
+    }
+
+    def run_install():
+        """后台执行安装"""
+        try:
+            _install_tasks[task_id]["progress"] = "正在下载，请耐心等待..."
+            result = subprocess.run(
+                [sys.executable, script_path],
+                capture_output=True,
+                text=True,
+                timeout=600,  # 10 分钟超时
+                cwd=str(ROOT),
+            )
+            if result.returncode == 0:
+                _install_tasks[task_id]["status"] = "success"
+                _install_tasks[task_id]["progress"] = "安装成功"
+            else:
+                _install_tasks[task_id]["status"] = "failed"
+                _install_tasks[task_id]["progress"] = f"安装失败 (exit {result.returncode})"
+            _install_tasks[task_id]["stdout"] = result.stdout[-2000:] if result.stdout else ""
+            _install_tasks[task_id]["stderr"] = result.stderr[-2000:] if result.stderr else ""
+        except subprocess.TimeoutExpired:
+            _install_tasks[task_id]["status"] = "timeout"
+            _install_tasks[task_id]["progress"] = "安装超时（超过10分钟）"
+        except Exception as e:
+            _install_tasks[task_id]["status"] = "error"
+            _install_tasks[task_id]["progress"] = f"安装出错: {str(e)}"
+        _install_tasks[task_id]["finished_at"] = datetime.now().isoformat()
+
+    background_tasks.add_task(run_install)
+
+    return {
+        "task_id": task_id,
+        "env": env,
+        "name": config["name"],
+        "message": f"开始安装 {config['name']}，预计需要 {config['size_mb']} 下载量",
+    }
+
+
+@app.get("/install/status/{task_id}")
+async def install_status(task_id: str):
+    """查询安装任务状态"""
+    if task_id not in _install_tasks:
+        raise HTTPException(404, "安装任务不存在")
+    return _install_tasks[task_id]
+
+
+@app.get("/install/available")
+async def install_available():
+    """列出可自动安装的环境"""
+    result = []
+    envs = runtime.detect_all_runtimes()
+    for env_key, config in INSTALL_CONFIG.items():
+        # 映射 env_key 到 runtime 的语言 key
+        lang_key = env_key if env_key != "cpp" else "cpp"
+        installed = envs.get(lang_key, {}).get("available", False)
+        result.append({
+            "env": env_key,
+            "name": config["name"],
+            "description": config["description"],
+            "size": config["size_mb"],
+            "installed": installed,
+            "version": envs.get(lang_key, {}).get("version", "") if installed else "",
+        })
+    return {"available": result}
+
+
 # ============ AI 助教接口 ============
 @app.post("/ai/chat")
 async def ai_chat(req: AIChatRequest):

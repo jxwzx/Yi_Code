@@ -28,8 +28,13 @@
 
 ### 环境要求
 
-- Python 3.11+
-- Node.js 18+
+- Python 3.11+（后端必须）
+- Node.js 18+（前端必须）
+- Java JDK 21 / C++ MinGW（可选，未安装时可在环境检查页面一键安装）
+
+> **关于大文件环境**：JDK (~190MB) 和 MinGW (~50MB) 不上传到 GitHub。
+> Clone 后在环境检查页面点击「一键安装」即可自动下载到项目 `_tools/` 目录，
+> 后端会自动检测该路径，无需手动配置环境变量。
 
 ### 1. 克隆仓库
 
@@ -150,6 +155,10 @@ npm run dev
 - 检测 6 种语言运行环境状态
 - 显示版本号和安装路径
 - 一键自检：逐语言执行测试代码
+- **一键安装**：未安装的 Java/C++ 环境可点击「一键安装」自动下载到项目目录
+  - JDK 21 从 Adoptium 官方 API 下载（~190MB）
+  - MinGW GCC 从 GitHub 下载（~50MB）
+  - 实时进度显示，安装成功后自动刷新
 
 ### 9. 用户系统
 - 注册/登录（SHA-256 密码哈希）
@@ -177,6 +186,9 @@ npm run dev
 | AI 助教 | `POST /ai/explain` | 代码解释 |
 | AI 助教 | `POST /ai/optimize` | 优化建议 |
 | 流程图 | `POST /ai/flowchart` | 代码生成 Mermaid 流程图 |
+| 环境安装 | `POST /install/{env}` | 一键安装 Java/C++ 环境 |
+| 环境安装 | `GET /install/status/{task_id}` | 查询安装进度 |
+| 环境安装 | `GET /install/available` | 列出可安装环境 |
 | 草稿 | `POST /drafts` | 保存代码草稿 |
 | 草稿 | `GET /drafts/{uid}/latest` | 获取最新草稿 |
 | 协作 | `POST /rooms` | 创建房间 |
@@ -205,7 +217,11 @@ yicode/
 │   └── flowchart.py           # 代码流程图生成器（静态分析）
 ├── data/
 │   └── yicode.db              # SQLite 数据库（自动创建）
-├── _tools/                    # 工具脚本
+├── _tools/                    # 工具脚本（安装脚本保留，环境不提交）
+│   ├── install_jdk.py        # JDK 21 自动安装脚本
+│   ├── install_mingw.py      # MinGW C++ 自动安装脚本
+│   ├── jdk/                  # JDK 安装目录（gitignore）
+│   └── mingw64/              # MinGW 安装目录（gitignore）
 ├── .env                       # 环境变量（API Key，不提交）
 ├── .gitignore
 ├── CHANGELOG.md               # 更新日志

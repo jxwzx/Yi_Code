@@ -40,16 +40,22 @@ class MultiLangRuntime:
             r"C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot\bin\javac.exe",
             r"C:\Program Files\Java\jdk-21\bin\javac.exe",
             r"C:\Program Files\Java\jdk-21.0.12\bin\javac.exe",
+            # 项目本地安装的 JDK（install_jdk.py 下载到 _tools/jdk）
+            str(Path(__file__).resolve().parents[1] / "_tools" / "jdk" / "bin" / "javac.exe"),
         ],
         "java": [
             r"C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot\bin\java.exe",
             r"C:\Program Files\Java\jdk-21\bin\java.exe",
             r"C:\Program Files\Java\jdk-21.0.12\bin\java.exe",
+            # 项目本地安装的 JDK
+            str(Path(__file__).resolve().parents[1] / "_tools" / "jdk" / "bin" / "java.exe"),
         ],
         "go": [
             r"C:\Program Files\Go\bin\go.exe",
             r"C:\Program Files (x86)\Go\bin\go.exe",
             r"C:\Go\bin\go.exe",
+            # 项目本地安装的 Go（install_go.py 下载到 _tools/go）
+            str(Path(__file__).resolve().parents[1] / "_tools" / "go" / "bin" / "go.exe"),
         ],
         "dotnet": [
             r"C:\Program Files\dotnet\dotnet.exe",

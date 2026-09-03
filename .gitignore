@@ -62,9 +62,14 @@ build/
 *.out
 *.dll
 
-# 工具下载目录
+# 工具下载目录（安装脚本保留，但下载的环境不提交）
 _tools/mingw64/
 _tools/llvm-mingw/
+_tools/jdk/
+_tools/go/
+_tools/*.zip
+_tools/*.7z
+_tools/*.tar.gz
 
 # 运行时环境（太大不提交）
 runtimes/

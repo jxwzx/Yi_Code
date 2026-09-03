@@ -2566,6 +2566,7 @@ function EnvCheck() {
   const [loading, setLoading] = useState(true)
   const [selfTest, setSelfTest] = useState<Record<string, SelfTestResult> | null>(null)
   const [testing, setTesting] = useState(false)
+  const [installStatus, setInstallStatus] = useState<Record<string, { status: string; progress: string }>>({})
 
   const fetchRuntimes = async () => {
     setLoading(true)
@@ -2592,6 +2593,45 @@ function EnvCheck() {
       setSelfTest({})
     }
     setTesting(false)
+  }
+
+  // 一键安装环境（java/cpp）
+  const installEnv = async (env: string) => {
+    // 支持自动安装的环境
+    const installableEnvs: Record<string, string> = {
+      java: 'JDK 21',
+      cpp: 'MinGW C++',
+    }
+    if (!installableEnvs[env]) return
+
+    setInstallStatus(prev => ({ ...prev, [env]: { status: 'installing', progress: '开始下载...' } }))
+
+    try {
+      const r = await fetch(`http://localhost:8000/install/${env}`, { method: 'POST' })
+      const data = await r.json()
+      if (data.task_id) {
+        // 轮询安装状态
+        const poll = async () => {
+          try {
+            const sr = await fetch(`http://localhost:8000/install/status/${data.task_id}`)
+            const sd = await sr.json()
+            setInstallStatus(prev => ({ ...prev, [env]: { status: sd.status, progress: sd.progress || sd.status } }))
+
+            if (sd.status === 'running') {
+              setTimeout(poll, 2000)
+            } else if (sd.status === 'success') {
+              // 安装成功后刷新环境检测
+              setTimeout(() => { fetchRuntimes() }, 1000)
+            }
+          } catch {
+            setTimeout(poll, 3000)
+          }
+        }
+        setTimeout(poll, 1000)
+      }
+    } catch (e) {
+      setInstallStatus(prev => ({ ...prev, [env]: { status: 'error', progress: '请求失败' } }))
+    }
   }
 
   const langIcons: Record<string, string> = {
@@ -2717,6 +2757,33 @@ function EnvCheck() {
               }}>
                 <i className="fas fa-wrench" style={{ marginRight: '6px' }}></i>
                 {installGuide[key] || '请安装对应编译器/解释器'}
+                {/* 一键安装按钮（仅 java/cpp） */}
+                {(key === 'java' || key === 'cpp') && (
+                  <button
+                    className="btn btn-primary"
+                    style={{ marginTop: '8px', width: '100%', justifyContent: 'center', fontSize: '13px', padding: '6px 12px' }}
+                    onClick={() => installEnv(key)}
+                    disabled={installStatus[key]?.status === 'running' || installStatus[key]?.status === 'installing'}
+                  >
+                    {installStatus[key]?.status === 'running' || installStatus[key]?.status === 'installing' ? (
+                      <>
+                        <i className="fas fa-spinner fa-spin"></i> {installStatus[key]?.progress || '安装中...'}
+                      </>
+                    ) : installStatus[key]?.status === 'success' ? (
+                      <>
+                        <i className="fas fa-check-circle"></i> 安装成功，请重新检测
+                      </>
+                    ) : installStatus[key]?.status === 'failed' || installStatus[key]?.status === 'error' ? (
+                      <>
+                        <i className="fas fa-exclamation-circle"></i> 安装失败，点击重试
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-download"></i> 一键安装（自动下载到项目目录）
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             )}
             {/* 自测结果 */}

@@ -4,6 +4,30 @@
 
 ---
 
+## [0.8.0] - 2026-09-03
+
+### 新增
+- **环境自动安装功能**：解决大文件（JDK ~190MB）无法上传 GitHub 的问题
+  - `_tools/install_jdk.py`：从 Adoptium 官方 API 下载 JDK 21 (Eclipse Temurin)，解压到 `_tools/jdk`
+  - 使用 Python 内置 `zipfile` 解压，无需额外依赖
+  - 多源下载（Adoptium API + GitHub Releases），自动回退
+  - 安装后自动验证 `javac.exe` 和 `java.exe`
+- **后端安装 API**：
+  - `POST /install/{env}`：触发后台安装任务（java/cpp）
+  - `GET /install/status/{task_id}`：轮询安装进度
+  - `GET /install/available`：列出可自动安装的环境及状态
+- **前端一键安装按钮**：环境检查页面中，未安装的 Java/C++ 环境显示「一键安装」按钮
+  - 实时显示安装进度（下载中/安装中/成功/失败）
+  - 安装成功后自动刷新环境检测
+  - 安装失败可点击重试
+- **runtime/manager.py 路径扩展**：`_EXTRA_BIN_PATHS` 添加 `_tools/jdk` 和 `_tools/go` 本地路径
+
+### 改进
+- `.gitignore` 更新：排除 `_tools/jdk/`、`_tools/go/`、`_tools/*.zip`、`_tools/*.7z` 等下载产物
+- 环境检查页面安装指引更新：显示 winget 命令 + 一键安装按钮
+
+---
+
 ## [0.7.0] - 2026-09-03
 
 ### 新增
