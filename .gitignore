@@ -65,3 +65,7 @@ build/
 # 工具下载目录
 _tools/mingw64/
 _tools/llvm-mingw/
+
+# 运行时环境（太大不提交）
+runtimes/
+package-lock.json
