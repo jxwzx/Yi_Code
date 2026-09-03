@@ -30,7 +30,7 @@ if str(ROOT) not in sys.path:
 
 from runtime.manager import MultiLangRuntime
 from ai.provider import AIProvider, LocalAIProvider, get_provider
-from services.local_api.database import init_db, query_all, query_one, execute as db_execute, _hash_password
+from services.local_api.database import init_db, query_all, query_one, execute as db_execute, _hash_password, generate_target_id, verify_admin_permission
 
 
 # ============ FastAPI 应用 ============
@@ -492,11 +492,15 @@ def register(req: RegisterRequest):
     existing = query_one("SELECT id FROM users WHERE username = ?", (req.username,))
     if existing:
         raise HTTPException(400, "用户名已存在")
+    
+    # 自动生成 target_id
+    target_id = generate_target_id("student")
+    
     uid = db_execute(
-        "INSERT INTO users (username, password_hash, email, avatar) VALUES (?,?,?,?)",
-        (req.username, _hash_password(req.password), req.email, req.avatar or req.username[0]),
+        "INSERT INTO users (username, password_hash, email, avatar, target_id) VALUES (?,?,?,?,?)",
+        (req.username, _hash_password(req.password), req.email, req.avatar or req.username[0], target_id),
     )
-    return {"user_id": uid, "username": req.username, "message": "注册成功"}
+    return {"user_id": uid, "username": req.username, "target_id": target_id, "message": "注册成功"}
 
 @app.post("/auth/login")
 def login(req: LoginRequest):
@@ -504,14 +508,87 @@ def login(req: LoginRequest):
     if not user or user["password_hash"] != _hash_password(req.password):
         raise HTTPException(401, "用户名或密码错误")
     return {"user_id": user["id"], "username": user["username"], "avatar": user["avatar"],
-            "level": user["level"], "xp": user["xp"], "streak_days": user["streak_days"]}
+            "level": user["level"], "xp": user["xp"], "streak_days": user["streak_days"],
+            "role": user.get("role", "student"), "target_id": user.get("target_id")}
 
 @app.get("/users/{user_id}")
 def get_user(user_id: int):
-    user = query_one("SELECT id, username, avatar, level, xp, streak_days, email, created_at FROM users WHERE id = ?", (user_id,))
+    user = query_one("SELECT id, username, avatar, level, xp, streak_days, email, role, target_id, created_at FROM users WHERE id = ?", (user_id,))
     if not user:
         raise HTTPException(404, "用户不存在")
     return user
+
+
+# ============ 管理员管理接口 ============
+ROLE_LABELS = {"super_admin": "超级管理员", "admin": "管理员", "student": "学生"}
+
+@app.get("/admin/users")
+def admin_list_users(operator_id: int = None):
+    """列出所有用户（含角色信息）- 需要管理员权限"""
+    # 验证操作者权限
+    if operator_id:
+        operator = verify_admin_permission(operator_id)
+        if not operator:
+            raise HTTPException(403, "需要管理员权限")
+    
+    users = query_all("SELECT id, username, avatar, level, xp, streak_days, role, target_id, created_at FROM users ORDER BY id")
+    for u in users:
+        u["role_label"] = ROLE_LABELS.get(u["role"], "学生")
+    return {"count": len(users), "users": users}
+
+
+@app.post("/admin/users/{user_id}/role")
+def admin_set_role(user_id: int, role: str = "student"):
+    """设置用户角色（仅超管可操作）"""
+    if role not in ("student", "admin", "super_admin"):
+        raise HTTPException(400, f"无效角色: {role}，可选: student/admin/super_admin")
+
+    user = query_one("SELECT id, role, target_id FROM users WHERE id = ?", (user_id,))
+    if not user:
+        raise HTTPException(404, "用户不存在")
+
+    # 不能取消最后一个超管
+    if user["role"] == "super_admin" and role != "super_admin":
+        super_count = query_one("SELECT COUNT(*) as c FROM users WHERE role='super_admin'")["c"]
+        if super_count <= 1:
+            raise HTTPException(400, "不能取消最后一个超级管理员")
+
+    target_id = user["target_id"]
+    if role == "admin":
+        # 分配新的 target_id（001, 002, ...）
+        if not target_id or target_id == "000":
+            max_tid = query_one("SELECT target_id FROM users WHERE role='admin' AND target_id IS NOT NULL ORDER BY target_id DESC LIMIT 1")
+            if max_tid and max_tid["target_id"]:
+                next_num = int(max_tid["target_id"]) + 1
+            else:
+                next_num = 1
+            target_id = f"{next_num:03d}"
+    elif role == "super_admin":
+        target_id = "000"
+    else:
+        target_id = None
+
+    db_execute("UPDATE users SET role=?, target_id=? WHERE id=?", (role, target_id, user_id))
+    return {"user_id": user_id, "role": role, "target_id": target_id,
+            "role_label": ROLE_LABELS.get(role, "学生"), "message": f"已设置为{ROLE_LABELS.get(role, '学生')}"}
+
+
+@app.delete("/admin/users/{user_id}")
+def admin_delete_user(user_id: int, operator_id: int = None):
+    """删除用户（超管不可删除自己，不可删除其他超管）- 需要管理员权限"""
+    # 验证操作者权限
+    if operator_id:
+        operator = verify_admin_permission(operator_id)
+        if not operator:
+            raise HTTPException(403, "需要管理员权限")
+    
+    user = query_one("SELECT id, role FROM users WHERE id = ?", (user_id,))
+    if not user:
+        raise HTTPException(404, "用户不存在")
+    if user["role"] == "super_admin":
+        raise HTTPException(400, "不能删除超级管理员")
+    db_execute("DELETE FROM users WHERE id=?", (user_id,))
+    return {"message": f"用户已删除", "user_id": user_id}
 
 
 # ============ 仪表盘数据 ============
@@ -581,6 +658,52 @@ def get_course(course_id: int):
 def get_course_lessons(course_id: int):
     lessons = query_all("SELECT * FROM lessons WHERE course_id = ? ORDER BY order_num", (course_id,))
     return {"count": len(lessons), "lessons": lessons}
+
+
+class CreateCourseRequest(BaseModel):
+    title: str
+    description: str = ""
+    language: str = "mixed"
+    difficulty: str = "入门"
+    category: str = "编程基础"
+    image_url: str = ""
+    course_url: str = ""
+    instructor: str = "YiCode 教研组"
+
+
+@app.post("/courses")
+def create_course(req: CreateCourseRequest):
+    """创建新课程"""
+    # 确保 image_url 和 course_url 列存在
+    try:
+        db_execute("ALTER TABLE courses ADD COLUMN image_url TEXT DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        db_execute("ALTER TABLE courses ADD COLUMN course_url TEXT DEFAULT ''")
+    except Exception:
+        pass
+
+    # 自动生成图标颜色
+    color_map = {
+        'py': '#3776ab', 'js': '#f7df1e', 'cpp': '#00599c',
+        'java': '#ed8b00', 'go': '#00add8', 'cs': '#239120', 'mixed': '#6366f1'
+    }
+    color = color_map.get(req.language, '#6366f1')
+
+    course_id = db_execute(
+        """INSERT INTO courses (title, description, language, difficulty, category, icon, color, instructor, image_url, course_url)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (req.title, req.description, req.language, req.difficulty, req.category,
+         'fa-graduation-cap', color, req.instructor, req.image_url, req.course_url)
+    )
+
+    # 重新加载课程列表
+    return {
+        "id": course_id,
+        "title": req.title,
+        "message": "课程发布成功"
+    }
 
 @app.get("/lessons/{lesson_id}")
 def get_lesson(lesson_id: int):
@@ -1081,18 +1204,23 @@ async def room_websocket(websocket: WebSocket, code: str):
 if __name__ == "__main__":
     import uvicorn
     print("=" * 60)
-    print("🚀 YiCode Local API 启动中...")
+    print("YiCode Local API 启动中...")
     print(f"   项目根目录: {ROOT}")
     print(f"   AI Provider: {ai_provider_name}")
     print()
     # 先打印环境检测结果
     envs = runtime.detect_all_runtimes()
-    print("📦 运行环境检测:")
+    print("运行环境检测:")
     for k, info in envs.items():
-        status = "✅" if info["available"] else "❌"
+        status = "[OK]" if info["available"] else "[NO]"
         ver = (info.get("version") or "未安装")[:50]
         print(f"   {status} {info['name']:10s} | {ver}")
     print()
-    print("🌐 API 文档: http://localhost:8000/docs")
+    print("API 文档: http://localhost:8000/docs")
     print("=" * 60)
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+
+
+
+
+

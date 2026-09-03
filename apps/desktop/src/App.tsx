@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react'
 import './App.css'
 
 // ============== YiCode 类型定义 ==============
-type PageKey = 'dashboard' | 'editor' | 'ai' | 'flowchart' | 'collab' | 'learn' | 'classroom' | 'envcheck'
+type PageKey = 'dashboard' | 'editor' | 'ai' | 'flowchart' | 'collab' | 'learn' | 'classroom' | 'envcheck' | 'admin'
 type LangKey = 'py' | 'js' | 'cpp' | 'java' | 'go' | 'cs'
 
 interface CurrentUser {
@@ -12,6 +12,8 @@ interface CurrentUser {
   level: number
   xp: number
   streak_days: number
+  role: string       // student / admin / super_admin
+  target_id: string | null  // 000(超管) / 001/002...(管理员) / null
 }
 
 interface Exercise {
@@ -160,6 +162,7 @@ export default function App() {
     } catch { return null }
   })
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   // 包裹 setPage：同时持久化到 localStorage（刷新后保持当前页）
   const setPagePersist = (p: PageKey) => {
@@ -199,11 +202,10 @@ export default function App() {
     flowchart: { icon: 'fa-project-diagram', text: '代码流程图' },
     collab: { icon: 'fa-users', text: '协作频道' },
     learn: { icon: 'fa-graduation-cap', text: '学习中心' },
-    classroom: { icon: 'fa-chalkboard-teacher', text: '我的课堂' },
+    classroom: { icon: 'fa-chalkboard-teacher', text: '我的课程' },
     envcheck: { icon: 'fa-stethoscope', text: '环境检查' },
+    admin: { icon: 'fa-shield-alt', text: '管理面板' },
   }
-
-  const [searchQuery, setSearchQuery] = useState('')
 
   return (
     <div className="app-layout">
@@ -227,6 +229,7 @@ export default function App() {
           {page === 'learn' && <LearnCenter setPage={setPagePersist} onOpenExercise={openExercise} searchQuery={searchQuery} />}
           {page === 'classroom' && <ClassroomView setPage={setPagePersist} />}
           {page === 'envcheck' && <EnvCheck />}
+          {page === 'admin' && <AdminPanel currentUser={currentUser} />}
         </div>
       </div>
     </div>
@@ -407,7 +410,7 @@ function Sidebar({ page, setPage, user, onLogout }: {
           <div className="nav-section-title">学习中心</div>
           {nav('dashboard', 'fa-th-large', '仪表盘')}
           {nav('learn', 'fa-graduation-cap', '学习中心')}
-          {nav('classroom', 'fa-chalkboard-teacher', '我的课堂', '3')}
+          {nav('classroom', 'fa-chalkboard-teacher', '我的课程', '3')}
         </div>
         <div className="nav-section">
           <div className="nav-section-title">开发工具</div>
@@ -420,6 +423,13 @@ function Sidebar({ page, setPage, user, onLogout }: {
           <div className="nav-section-title">社区协作</div>
           {nav('collab', 'fa-users', '协作频道', '5')}
         </div>
+        {/* 管理员/超管显示管理面板入口 */}
+        {(user.role === 'super_admin' || user.role === 'admin') && (
+          <div className="nav-section">
+            <div className="nav-section-title">系统管理</div>
+            {nav('admin', 'fa-shield-alt', '管理面板', user.role === 'super_admin' ? '超管' : '管理')}
+          </div>
+        )}
       </nav>
 
       <div className="sidebar-footer">
@@ -465,7 +475,22 @@ function Topbar({ icon, title, setRunStatus, user, onLogout, searchQuery, setSea
       </div>
       <div className="search-box">
         <i className="fas fa-search"></i>
-        <input type="text" placeholder="搜索题目、代码、知识点..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+        <input
+          type="text"
+          placeholder="搜索题目、代码、知识点..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') setSearchQuery('') }}
+        />
+        {searchQuery && (
+          <button
+            className="search-clear"
+            onClick={() => setSearchQuery('')}
+            title="清除搜索"
+          >
+            <i className="fas fa-times"></i>
+          </button>
+        )}
       </div>
       <div className="topbar-actions">
         <button className="icon-btn" title="帮助">
@@ -511,6 +536,10 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
   const [learningProgress, setLearningProgress] = useState<Array<{
     course_id?: number; progress_pct?: number
   }>>([])
+  // API Key 设置
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('yicode_ai_token') || '')
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
 
   const loadDashboard = async () => {
     try {
@@ -603,6 +632,11 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
     }
   }
 
+  const saveApiKey = () => {
+    localStorage.setItem('yicode_ai_token', apiKey)
+    setShowApiKeyInput(false)
+  }
+
   if (loading) {
     return (
       <div className="fade-in" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '80px 0' }}>
@@ -620,6 +654,70 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
 
   return (
     <div className="fade-in">
+      {/* 仪表盘标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={{ position: 'relative' }}>
+          <button
+            className="icon-btn"
+            title="AI 设置"
+            onClick={() => setShowApiKeyInput(!showApiKeyInput)}
+            style={{ fontSize: '16px' }}
+          >
+            <i className="fas fa-cog"></i>
+          </button>
+          {/* API Key 输入弹出框 */}
+          {showApiKeyInput && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: '8px',
+              background: 'var(--bg-card)', border: '1px solid var(--border)',
+              borderRadius: '10px', padding: '14px 16px', boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+              zIndex: 100, minWidth: '260px',
+            }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '10px', color: 'var(--text-primary)' }}>
+                <i className="fas fa-key" style={{ marginRight: '6px', color: 'var(--primary-light)' }}></i>
+                MiMo API Key
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{
+                  flex: 1, display: 'flex', alignItems: 'center', gap: '6px',
+                  background: 'var(--bg-main)', border: '1px solid var(--border)',
+                  borderRadius: '6px', padding: '6px 10px',
+                }}>
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={e => setApiKey(e.target.value)}
+                    placeholder="输入 API Key"
+                    style={{
+                      background: 'transparent', border: 'none', color: 'var(--text-primary)',
+                      fontSize: '13px', width: '100%', outline: 'none', padding: '0',
+                    }}
+                  />
+                  <button
+                    className="icon-btn"
+                    style={{ padding: '2px', fontSize: '10px', flexShrink: 0 }}
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    title={showApiKey ? '隐藏' : '显示'}
+                  >
+                    <i className={`fas ${showApiKey ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                  </button>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  style={{ padding: '6px 12px', fontSize: '12px' }}
+                  onClick={saveApiKey}
+                >
+                  保存
+                </button>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                用于 AI 助教的智能回复
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="dashboard-grid">
         {statCards.map((s, i) => (
           <div key={i} className={`stat-card ${s.cls}`}>
@@ -1221,6 +1319,7 @@ function AIPanel({ code, lang, standalone }: { code?: string; lang?: LangKey; st
   ])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const apiKey = localStorage.getItem('yicode_ai_token') || ''
 
   const scrollRef = (el: HTMLDivElement | null) => {
     if (el) setTimeout(() => (el.scrollTop = el.scrollHeight), 10)
@@ -1237,10 +1336,12 @@ function AIPanel({ code, lang, standalone }: { code?: string; lang?: LangKey; st
     // 先尝试后端 API
     let reply: AIMessage | null = null
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (apiKey) headers['X-API-Key'] = apiKey
       const resp = await fetch('http://localhost:8000/ai/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: content, code, language: lang })
+        headers,
+        body: JSON.stringify({ message: content, code, language: lang, api_key: apiKey || undefined })
       })
       if (resp.ok) {
         const data = await resp.json()
@@ -2538,12 +2639,13 @@ function LearnCenter({ setPage, onOpenExercise, searchQuery }: {
   )
 }
 
-// ============== 我的课堂 ==============
+// ============== 学习中心 ==============
 function ClassroomView({ setPage }: { setPage: (p: PageKey) => void }) {
   const API_BASE = 'http://localhost:8000'
   const [courses, setCourses] = useState<Array<{
     id: number; title: string; description: string; language: string; difficulty: string;
     category: string; icon: string; color: string; instructor: string; student_count: number;
+    image_url?: string; course_url?: string;
   }>>([])
   const [loading, setLoading] = useState(true)
   const [selectedCourse, setSelectedCourse] = useState<any | null>(null)
@@ -2551,6 +2653,43 @@ function ClassroomView({ setPage }: { setPage: (p: PageKey) => void }) {
     id: number; title: string; summary: string; external_url: string; external_site: string; order_num: number;
   }>>([])
   const [lessonsLoading, setLessonsLoading] = useState(false)
+  // 发布课程相关状态
+  const [showPublish, setShowPublish] = useState(false)
+  const [newCourse, setNewCourse] = useState({
+    title: '', description: '', language: 'mixed', difficulty: '入门',
+    image_url: '', course_url: '', instructor: 'YiCode 教研组'
+  })
+  const [publishing, setPublishing] = useState(false)
+  const [publishMsg, setPublishMsg] = useState('')
+
+  const publishCourse = async () => {
+    if (!newCourse.title.trim()) { setPublishMsg('请输入课程名称'); return }
+    setPublishing(true)
+    setPublishMsg('')
+    try {
+      const resp = await fetch(`${API_BASE}/courses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCourse)
+      })
+      const data = await resp.json()
+      if (resp.ok) {
+        setPublishMsg('✅ 课程发布成功！')
+        // 刷新课程列表
+        fetch(`${API_BASE}/courses`).then(r => r.json()).then(d => setCourses(d.courses || []))
+        setTimeout(() => {
+          setShowPublish(false)
+          setNewCourse({ title: '', description: '', language: 'mixed', difficulty: '入门', image_url: '', course_url: '', instructor: 'YiCode 教研组' })
+          setPublishMsg('')
+        }, 1500)
+      } else {
+        setPublishMsg(`❌ ${data.detail || '发布失败'}`)
+      }
+    } catch {
+      setPublishMsg('❌ 网络错误')
+    }
+    setPublishing(false)
+  }
 
   useEffect(() => {
     let alive = true
@@ -2684,13 +2823,11 @@ function ClassroomView({ setPage }: { setPage: (p: PageKey) => void }) {
         <div>
           <h2 style={{ fontSize: '22px', fontWeight: 800, marginBottom: '6px' }}>
             <i className="fas fa-chalkboard-teacher" style={{ color: 'var(--primary-light)', marginRight: '10px' }}></i>
-            我的课堂
+            我的课程
           </h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>你目前加入了 {courses.length} 个课堂，紧跟老师的节奏，加油哦！</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
-          <button className="btn btn-secondary"><i className="fas fa-plus"></i> 创建课堂</button>
-          <button className="btn btn-primary"><i className="fas fa-key"></i> 使用邀请码加入</button>
+          <button className="btn btn-secondary" onClick={() => setShowPublish(true)}><i className="fas fa-plus"></i> 发布课程</button>
         </div>
       </div>
 
@@ -2704,38 +2841,223 @@ function ClassroomView({ setPage }: { setPage: (p: PageKey) => void }) {
             暂无课堂
           </div>
         ) : courses.map((c) => {
-          const avatars = genAvatars(c.student_count)
-          const more = Math.max(0, c.student_count - avatars.length)
+          const firstChar = c.title ? c.title[0] : '课'
+          const langColors: Record<string, string> = { py: '#3776AB', js: '#F7DF1E', cpp: '#00599C', java: '#ED8B00', go: '#00ADD8', cs: '#68217A', mixed: '#6366f1' }
+          const accentColor = langColors[c.language] || '#6366f1'
           return (
-            <div key={c.id} className="class-card" onClick={() => openCourse(c)}>
-              <div className="class-title">
-                <i className={`fas ${c.icon}`} style={{ marginRight: '8px', color: c.color, fontSize: '20px' }}></i>
-                {c.title}
-                <span className="teacher-tag">{c.instructor} · 授课中</span>
+            <div key={c.id} className="class-card" onClick={() => openCourse(c)} style={{ padding: 0, overflow: 'hidden' }}>
+              {/* 课程封面区域 */}
+              <div style={{
+                height: '120px', position: 'relative', overflow: 'hidden',
+                background: c.image_url
+                  ? `url(${c.image_url}) center/cover no-repeat`
+                  : `linear-gradient(135deg, ${accentColor}, ${accentColor}aa)`,
+              }}>
+                {!c.image_url && (
+                  <div style={{
+                    position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '48px', fontWeight: 800, color: 'rgba(255,255,255,0.25)',
+                    fontFamily: 'serif',
+                  }}>{firstChar}</div>
+                )}
+                {/* 难度标签 */}
+                <div style={{
+                  position: 'absolute', top: '10px', right: '10px',
+                  padding: '3px 10px', borderRadius: '10px', fontSize: '11px', fontWeight: 700,
+                  background: 'rgba(0,0,0,0.5)', color: '#fff', backdropFilter: 'blur(4px)',
+                }}>{c.difficulty}</div>
               </div>
-              <div className="class-meta">
-                <span><i className="fas fa-user-graduate"></i> {c.student_count} 名同学</span>
-                <span><i className="fas fa-signal"></i> {c.difficulty}</span>
-                <span><i className="fas fa-folder"></i> {c.category}</span>
-              </div>
-              <div className="class-students">
-                <div className="student-avatars">
-                  {avatars.map(([ch, bg], k) => (
-                    <div key={k} style={{ background: `linear-gradient(135deg, ${bg}, ${bg}cc)` }}>{ch}</div>
-                  ))}
+              {/* 课程信息区域 */}
+              <div style={{ padding: '16px 18px' }}>
+                <div style={{ fontSize: '16px', fontWeight: 800, marginBottom: '6px', lineHeight: 1.3 }}>
+                  {c.title}
                 </div>
-                <div className="student-more">+{more} 名同学</div>
-              </div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); openCourse(c) }}>
-                  <i className="fas fa-book-open"></i> 查看章节
-                </button>
-                <button className="btn btn-secondary" onClick={(e) => { e.stopPropagation(); setPage('editor') }}><i className="fas fa-code"></i></button>
+                {c.description && (
+                  <div style={{
+                    fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5,
+                    overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
+                    WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', marginBottom: '10px',
+                  }}>{c.description}</div>
+                )}
+                {!c.description && <div style={{ marginBottom: '10px' }}></div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                  <span><i className="fas fa-user" style={{ marginRight: '4px' }}></i>{c.instructor}</span>
+                  <span>·</span>
+                  <span><i className="fas fa-user-graduate" style={{ marginRight: '4px' }}></i>{c.student_count} 人学习</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {c.course_url ? (
+                    <a
+                      href={c.course_url} target="_blank" rel="noopener noreferrer"
+                      className="btn btn-primary" style={{ flex: 1, justifyContent: 'center', textDecoration: 'none', fontSize: '13px' }}
+                      onClick={e => e.stopPropagation()}
+                    ><i className="fas fa-external-link-alt"></i> 打开课程</a>
+                  ) : (
+                    <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: '13px' }} onClick={(e) => { e.stopPropagation(); openCourse(c) }}>
+                      <i className="fas fa-book-open"></i> 查看章节
+                    </button>
+                  )}
+                  <button className="btn btn-secondary" style={{ fontSize: '13px' }} onClick={(e) => { e.stopPropagation(); setPage('editor') }}><i className="fas fa-code"></i></button>
+                </div>
               </div>
             </div>
           )
         })}
       </div>
+
+      {/* 发布课程弹窗 */}
+      {showPublish && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px',
+        }} onClick={() => setShowPublish(false)}>
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '14px',
+            padding: '28px', maxWidth: '640px', width: '100%', maxHeight: '90vh', overflowY: 'auto',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 800, margin: 0 }}>
+                <i className="fas fa-graduation-cap" style={{ marginRight: '8px', color: 'var(--primary-light)' }}></i>
+                发布新课程
+              </h3>
+              <button className="icon-btn" onClick={() => setShowPublish(false)}><i className="fas fa-times"></i></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* 课程名称 */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>课程名称 *</label>
+                <input
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: '14px' }}
+                  placeholder="如：Python 零基础入门、JavaScript 高级编程..."
+                  value={newCourse.title}
+                  onChange={e => setNewCourse({ ...newCourse, title: e.target.value })}
+                />
+              </div>
+
+              {/* 课程图片 */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>课程图片（可选）</label>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: '14px' }}
+                      placeholder="输入图片 URL..."
+                      value={newCourse.image_url}
+                      onChange={e => setNewCourse({ ...newCourse, image_url: e.target.value })}
+                    />
+                  </div>
+                  {/* 图片预览 */}
+                  <div style={{
+                    width: '48px', height: '48px', borderRadius: '10px', flexShrink: 0,
+                    background: newCourse.image_url
+                      ? `url(${newCourse.image_url}) center/cover`
+                      : 'linear-gradient(135deg, var(--primary), var(--primary-dark))',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff', fontSize: '20px', fontWeight: 700,
+                    border: '1px solid var(--border)',
+                  }}>
+                    {!newCourse.image_url && (newCourse.title ? newCourse.title[0] : '课')}
+                  </div>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  不填图片则显示课程名称第一个字
+                </div>
+              </div>
+
+              {/* 课程链接 */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>课程链接</label>
+                <input
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: '14px' }}
+                  placeholder="如：https://www.runoob.com/python3/python3-tutorial.html"
+                  value={newCourse.course_url}
+                  onChange={e => setNewCourse({ ...newCourse, course_url: e.target.value })}
+                />
+              </div>
+
+              {/* 课程介绍 */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>课程介绍</label>
+                <textarea
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: '14px', minHeight: '80px', resize: 'vertical' }}
+                  placeholder="介绍课程内容、适合人群、学习目标..."
+                  value={newCourse.description}
+                  onChange={e => setNewCourse({ ...newCourse, description: e.target.value })}
+                />
+              </div>
+
+              {/* 语言 + 难度 */}
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>编程语言</label>
+                  <select
+                    style={{ width: '100%' }}
+                    value={newCourse.language}
+                    onChange={e => setNewCourse({ ...newCourse, language: e.target.value })}
+                  >
+                    <option value="py">Python</option>
+                    <option value="js">JavaScript</option>
+                    <option value="cpp">C++</option>
+                    <option value="java">Java</option>
+                    <option value="go">Go</option>
+                    <option value="cs">C#</option>
+                    <option value="mixed">综合</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>难度</label>
+                  <select
+                    style={{ width: '100%' }}
+                    value={newCourse.difficulty}
+                    onChange={e => setNewCourse({ ...newCourse, difficulty: e.target.value })}
+                  >
+                    <option value="入门">入门</option>
+                    <option value="简单">简单</option>
+                    <option value="中等">中等</option>
+                    <option value="困难">困难</option>
+                    <option value="进阶">进阶</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 讲师 */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>讲师/来源</label>
+                <input
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: '14px' }}
+                  placeholder="如：菜鸟编程、YiCode 教研组"
+                  value={newCourse.instructor}
+                  onChange={e => setNewCourse({ ...newCourse, instructor: e.target.value })}
+                />
+              </div>
+
+              {/* 消息提示 */}
+              {publishMsg && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', background: publishMsg.includes('成功') ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', fontSize: '13px', color: publishMsg.includes('成功') ? '#10b981' : '#ef4444', textAlign: 'center' }}>
+                  {publishMsg}
+                </div>
+              )}
+
+              {/* 按钮 */}
+              <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                <button className="btn btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setShowPublish(false)}>
+                  取消
+                </button>
+                <button className="btn btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={publishCourse} disabled={publishing}>
+                  {publishing ? (
+                    <><i className="fas fa-spinner fa-spin"></i> 发布中...</>
+                  ) : (
+                    <><i className="fas fa-paper-plane"></i> 发布课程</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -3027,4 +3349,251 @@ function EnvCheck() {
     </div>
   )
 }
+
+
+// ============== 管理面板组件 ==============
+function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
+  const [users, setUsers] = useState<Array<{
+    id: number; username: string; avatar: string; level: number; xp: number;
+    streak_days: number; role: string; target_id: string | null; created_at: string;
+    role_label: string;
+  }>>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [actionLoading, setActionLoading] = useState<number | null>(null)
+
+  const API_BASE = 'http://localhost:8000'
+
+  const fetchUsers = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const resp = await fetch(`${API_BASE}/admin/users?operator_id=${currentUser.user_id}`)
+      const data = await resp.json()
+      if (resp.ok) {
+        setUsers(data.users || [])
+      } else {
+        setError(data.detail || '获取用户列表失败')
+      }
+    } catch (err) {
+      setError('网络错误，请确认后端已启动')
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { fetchUsers() }, [])
+
+  const setRole = async (userId: number, newRole: string) => {
+    if (userId === currentUser.user_id && currentUser.role === 'super_admin' && newRole !== 'super_admin') {
+      if (!confirm('确定要将自己的超级管理员身份移除吗？')) return
+    }
+    setActionLoading(userId)
+    try {
+      const resp = await fetch(`${API_BASE}/admin/users/${userId}/role?role=${newRole}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const data = await resp.json()
+      if (resp.ok) {
+        await fetchUsers()
+      } else {
+        alert(data.detail || '操作失败')
+      }
+    } catch {
+      alert('网络错误')
+    }
+    setActionLoading(null)
+  }
+
+  const deleteUser = async (userId: number, username: string) => {
+    if (!confirm(`确定要删除用户 "${username}" 吗？此操作不可撤销。`)) return
+    setActionLoading(userId)
+    try {
+      const resp = await fetch(`${API_BASE}/admin/users/${userId}`, {
+        method: 'DELETE',
+      })
+      const data = await resp.json()
+      if (resp.ok) {
+        await fetchUsers()
+      } else {
+        alert(data.detail || '删除失败')
+      }
+    } catch {
+      alert('网络错误')
+    }
+    setActionLoading(null)
+  }
+
+  const roleBadge = (role: string, target_id: string | null) => {
+    const badges: Record<string, { bg: string; color: string; icon: string; label: string }> = {
+      super_admin: { bg: 'rgba(239,68,68,0.15)', color: '#ef4444', icon: 'fa-crown', label: '超级管理员' },
+      admin: { bg: 'rgba(99,102,241,0.15)', color: '#818cf8', icon: 'fa-shield-alt', label: '管理员' },
+      student: { bg: 'rgba(148,163,184,0.15)', color: '#94a3b8', icon: 'fa-user', label: '学生' },
+    }
+    const b = badges[role] || badges.student
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: '4px',
+        padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600,
+        background: b.bg, color: b.color,
+      }}>
+        <i className={`fas ${b.icon}`}></i>
+        {b.label}
+        {target_id && <span style={{ marginLeft: '4px', fontFamily: 'monospace' }}>({target_id})</span>}
+      </span>
+    )
+  }
+
+  if (currentUser.role !== 'super_admin' && currentUser.role !== 'admin') {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+        <i className="fas fa-lock" style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.3 }}></i>
+        <div style={{ fontSize: '16px' }}>需要管理员权限才能访问此页面</div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
+      {/* 页面标题 */}
+      <div style={{ marginBottom: '24px' }}>
+        <h2 style={{ fontSize: '22px', fontWeight: 800, margin: 0 }}>
+          <i className="fas fa-shield-alt" style={{ marginRight: '10px', color: 'var(--primary-light)' }}></i>
+          管理面板
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '6px' }}>
+          {currentUser.role === 'super_admin' ? '超级管理员' : '管理员'} · ID: {currentUser.target_id || '-'}
+        </p>
+      </div>
+
+      {/* 用户管理 */}
+      <div className="panel">
+        <div className="panel-header">
+          <div className="panel-title">
+            <i className="fas fa-users"></i> 用户管理 ({users.length}人)
+          </div>
+          <button className="btn btn-secondary" onClick={fetchUsers} disabled={loading}>
+            <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-sync'}`}></i> 刷新
+          </button>
+        </div>
+
+        {error && (
+          <div style={{
+            padding: '12px 16px', margin: '16px', borderRadius: '8px',
+            background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '13px',
+          }}>
+            <i className="fas fa-exclamation-circle" style={{ marginRight: '8px' }}></i>{error}
+          </div>
+        )}
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+            <i className="fas fa-spinner fa-spin" style={{ fontSize: '24px' }}></i>
+            <div style={{ marginTop: '10px' }}>正在加载用户列表...</div>
+          </div>
+        ) : (
+          <div style={{ padding: '16px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {users.map((u) => (
+                <div key={u.id} style={{
+                  padding: '16px', borderRadius: '12px',
+                  border: u.id === currentUser.user_id ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  background: u.id === currentUser.user_id ? 'rgba(99,102,241,0.05)' : 'var(--bg-card)',
+                  display: 'flex', alignItems: 'center', gap: '16px',
+                  opacity: actionLoading === u.id ? 0.6 : 1,
+                  transition: 'var(--transition)',
+                }}>
+                  {/* 用户头像 */}
+                  <div style={{
+                    width: '44px', height: '44px', borderRadius: '12px',
+                    background: u.role === 'super_admin' ? 'linear-gradient(135deg, #ef4444, #f97316)' :
+                      u.role === 'admin' ? 'linear-gradient(135deg, #6366f1, #818cf8)' :
+                        'linear-gradient(135deg, #334155, #475569)',
+                    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '18px', fontWeight: 700, flexShrink: 0,
+                  }}>
+                    {u.avatar || u.username[0]}
+                  </div>
+
+                  {/* 用户信息 */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '15px' }}>{u.username}</span>
+                      {u.id === currentUser.user_id && (
+                        <span style={{ fontSize: '11px', color: 'var(--primary-light)', background: 'rgba(99,102,241,0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                          当前用户
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      <span><i className="fas fa-star" style={{ marginRight: '4px', color: '#fbbf24' }}></i>Lv.{u.level}</span>
+                      <span><i className="fas fa-bolt" style={{ marginRight: '4px', color: '#10b981' }}></i>{u.xp} XP</span>
+                      <span><i className="fas fa-fire" style={{ marginRight: '4px', color: '#f97316' }}></i>{u.streak_days}天连续</span>
+                      <span style={{ color: 'var(--text-muted)' }}>ID: {u.id}</span>
+                    </div>
+                  </div>
+
+                  {/* 角色标识 */}
+                  <div>{roleBadge(u.role, u.target_id)}</div>
+
+                  {/* 操作按钮 */}
+                  {u.role !== 'super_admin' && currentUser.role === 'super_admin' && (
+                    <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                      {u.role === 'student' ? (
+                        <button
+                          className="btn btn-primary"
+                          style={{ fontSize: '12px', padding: '6px 12px' }}
+                          onClick={() => setRole(u.id, 'admin')}
+                          disabled={actionLoading !== null}
+                        >
+                          <i className="fas fa-user-shield"></i> 设为管理员
+                        </button>
+                      ) : u.role === 'admin' ? (
+                        <button
+                          className="btn btn-secondary"
+                          style={{ fontSize: '12px', padding: '6px 12px' }}
+                          onClick={() => setRole(u.id, 'student')}
+                          disabled={actionLoading !== null}
+                        >
+                          <i className="fas fa-user"></i> 取消管理员
+                        </button>
+                      ) : null}
+                      {u.role !== 'super_admin' && (
+                        <button
+                          className="btn btn-secondary"
+                          style={{ fontSize: '12px', padding: '6px 12px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}
+                          onClick={() => deleteUser(u.id, u.username)}
+                          disabled={actionLoading !== null}
+                        >
+                          <i className="fas fa-trash"></i> 删除
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {actionLoading === u.id && (
+                    <i className="fas fa-spinner fa-spin" style={{ color: 'var(--primary-light)' }}></i>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* 统计信息 */}
+            <div style={{
+              marginTop: '20px', padding: '16px', borderRadius: '10px',
+              background: 'rgba(15,23,42,0.4)', display: 'flex', gap: '24px',
+              fontSize: '13px', color: 'var(--text-secondary)',
+            }}>
+              <div><i className="fas fa-users" style={{ marginRight: '6px' }}></i>总用户: {users.length}</div>
+              <div><i className="fas fa-crown" style={{ marginRight: '6px', color: '#ef4444' }}></i>超管: {users.filter(u => u.role === 'super_admin').length}</div>
+              <div><i className="fas fa-shield-alt" style={{ marginRight: '6px', color: '#818cf8' }}></i>管理员: {users.filter(u => u.role === 'admin').length}</div>
+              <div><i className="fas fa-user" style={{ marginRight: '6px', color: '#94a3b8' }}></i>学生: {users.filter(u => u.role === 'student').length}</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
 

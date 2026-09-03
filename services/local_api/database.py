@@ -42,6 +42,8 @@ def init_db():
         level       INTEGER DEFAULT 1,
         xp          INTEGER DEFAULT 0,
         streak_days INTEGER DEFAULT 1,
+        role        TEXT DEFAULT 'student',   -- student / admin / super_admin
+        target_id   TEXT,                      -- 000(超管) / 001/002...(管理员) / NULL(学生)
         created_at  TEXT DEFAULT (datetime('now','localtime'))
     );
 
@@ -132,6 +134,22 @@ def init_db():
     );
     """)
 
+    # ========== 迁移：为旧库添加 role / target_id 列 ==========
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'student'")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN target_id TEXT")
+    except Exception:
+        pass
+
+    # 迁移：如果没有超管，把第一个用户设为超管(target_id=000)
+    if cur.execute("SELECT COUNT(*) FROM users WHERE role = 'super_admin'").fetchone()[0] == 0:
+        first_id = cur.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+        if first_id:
+            cur.execute("UPDATE users SET role='super_admin', target_id='000' WHERE id=?", (first_id[0],))
+
     # ========== 填充初始数据（仅在空库时） ==========
     if cur.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         _seed_users(cur)
@@ -151,23 +169,23 @@ def init_db():
 # ========== 初始数据填充 ==========
 
 def _seed_users(cur):
-    """初始用户：1 个管理员 + 5 个排行榜用户"""
+    """初始用户：1 个超级管理员(000) + 5 个排行榜学生用户"""
     users = [
-        ("编程学习者", "123456", "我", 7, 2840, 12),
-        ("算法达人", "abc123", "算", 9, 4520, 20),
-        ("Python女神", "abc123", "Py", 8, 3850, 15),
-        ("全栈工程师", "abc123", "全", 10, 6120, 30),
-        ("C语言大师", "abc123", "C", 6, 2100, 8),
-        ("Go语言新星", "abc123", "Go", 5, 1800, 5),
+        ("编程学习者", "123456", "我", 7, 2840, 12, "super_admin", "000"),
+        ("算法达人", "abc123", "算", 9, 4520, 20, "student", None),
+        ("Python女神", "abc123", "Py", 8, 3850, 15, "student", None),
+        ("全栈工程师", "abc123", "全", 10, 6120, 30, "student", None),
+        ("C语言大师", "abc123", "C", 6, 2100, 8, "student", None),
+        ("Go语言新星", "abc123", "Go", 5, 1800, 5, "student", None),
     ]
-    for name, pwd, avatar, lv, xp, streak in users:
+    for name, pwd, avatar, lv, xp, streak, role, target_id in users:
         cur.execute(
-            "INSERT INTO users (username, password_hash, avatar, level, xp, streak_days) VALUES (?,?,?,?,?,?)",
-            (name, _hash_password(pwd), avatar, lv, xp, streak),
+            "INSERT INTO users (username, password_hash, avatar, level, xp, streak_days, role, target_id) VALUES (?,?,?,?,?,?,?,?)",
+            (name, _hash_password(pwd), avatar, lv, xp, streak, role, target_id),
         )
 
     # 排行榜
-    for i, (name, _, _, _, xp, _) in enumerate(users, 1):
+    for i, (name, _, _, _, xp, _) in enumerate([(u[0], u[1], u[2], u[3], u[4], u[5]) for u in users], 1):
         cur.execute(
             "INSERT INTO leaderboard (user_id, rank_num, xp) VALUES ((SELECT id FROM users WHERE username=?), ?, ?)",
             (name, i, xp),
@@ -410,3 +428,44 @@ def execute(sql: str, params: tuple = ()) -> int:
     rowid = cur.lastrowid
     conn.close()
     return rowid
+
+def generate_target_id(role: str = "student") -> str:
+    """
+    生成下一个 target_id
+    - super_admin: 固定返回 "000"
+    - admin/student: 返回 "001", "002", "003", ... (递增)
+    """
+    if role == "super_admin":
+        return "000"
+    
+    conn = get_db()
+    # 获取当前最大的 target_id（排除 000 超管）
+    row = conn.execute(
+        "SELECT target_id FROM users WHERE target_id IS NOT NULL AND target_id != '000' ORDER BY CAST(target_id AS INTEGER) DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    
+    if row and row[0]:
+        try:
+            next_num = int(row[0]) + 1
+        except ValueError:
+            next_num = 1
+    else:
+        next_num = 1
+    
+    return f"{next_num:03d}"
+
+
+def verify_admin_permission(user_id: int) -> dict:
+    """
+    验证用户是否有管理员权限
+    返回用户信息，如果没有权限则返回 None
+    """
+    user = query_one("SELECT id, role, target_id FROM users WHERE id = ?", (user_id,))
+    if not user:
+        return None
+    if user["role"] not in ("admin", "super_admin"):
+        return None
+    return user
+
+
