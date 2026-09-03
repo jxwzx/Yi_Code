@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YiCode - AI编程学习平台</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            text-align: center;
+            padding: 40px 20px;
+        }
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .subtitle {
+            font-size: 1.5rem;
+            margin-bottom: 40px;
+            opacity: 0.9;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 60px;
+        }
+        .feature-card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            transition: transform 0.3s ease;
+        }
+        .feature-card:hover {
+            transform: translateY(-10px);
+        }
+        .feature-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+        }
+        .feature-card p {
+            opacity: 0.9;
+            line-height: 1.6;
+        }
+        .logo {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+        .tech-stack {
+            margin-top: 60px;
+            padding: 30px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 15px;
+        }
+        .tech-stack h2 {
+            margin-bottom: 20px;
+        }
+        .tech-items {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px;
+        }
+        .tech-item {
+            background: rgba(255,255,255,0.2);
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 0.9rem;
+        }
+        .status {
+            margin-top: 40px;
+            padding: 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🚀</div>
+        <h1>YiCode</h1>
+        <p class="subtitle">AI编程学习平台 - 让编程学习更简单</p>
+        
+        <div class="features">
+            <div class="feature-card">
+                <h3>💻 代码空间</h3>
+                <p>在线代码编辑器，支持Python语法高亮、自动补全、代码执行，随时随地编写和运行代码。</p>
+            </div>
+            
+            <div class="feature-card">
+                <h3>🤖 AI助手</h3>
+                <p>智能编程助手，代码补全、错误诊断、学习建议，让AI成为你的编程导师。</p>
+            </div>
+            
+            <div class="feature-card">
+                <h3>👨‍🏫 课堂管理</h3>
+                <p>教师创建课堂，学生加入学习，实时互动、作业提交、成绩管理，一站式教学平台。</p>
+            </div>
+            
+            <div class="feature-card">
+                <h3>🔗 实时协作</h3>
+                <p>多人实时编辑同一代码文件，教师查看学生代码，协作编程学习更高效。</p>
+            </div>
+        </div>
+        
+        <div class="tech-stack">
+            <h2>技术栈</h2>
+            <div class="tech-items">
+                <span class="tech-item">Tauri</span>
+                <span class="tech-item">React</span>
+                <span class="tech-item">TypeScript</span>
+                <span class="tech-item">FastAPI</span>
+                <span class="tech-item">Python</span>
+                <span class="tech-item">SQLite</span>
+                <span class="tech-item">WebSocket</span>
+                <span class="tech-item">Monaco Editor</span>
+            </div>
+        </div>
+        
+        <div class="status">
+            <p>> 系统状态: 开发中</p>
+            <p>> 版本: v0.1.0</p>
+            <p>> 最后更新: 2026-09-03</p>
+            <p>> 运行环境: Tauri + React</p>
+        </div>
+    </div>
+</body>
+</html>
