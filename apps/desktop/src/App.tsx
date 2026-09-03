@@ -203,6 +203,8 @@ export default function App() {
     envcheck: { icon: 'fa-stethoscope', text: '环境检查' },
   }
 
+  const [searchQuery, setSearchQuery] = useState('')
+
   return (
     <div className="app-layout">
       <Sidebar page={page} setPage={setPagePersist} user={currentUser} onLogout={handleLogout} />
@@ -213,6 +215,8 @@ export default function App() {
           setRunStatus={setRunStatus}
           user={currentUser}
           onLogout={handleLogout}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
         />
         <div className="content-area">
           {page === 'dashboard' && <Dashboard setPage={setPagePersist} userId={currentUser.user_id} />}
@@ -220,7 +224,7 @@ export default function App() {
           {page === 'ai' && <AIPanel standalone />}
           {page === 'flowchart' && <FlowchartView />}
           {page === 'collab' && <CollabChannel />}
-          {page === 'learn' && <LearnCenter setPage={setPagePersist} onOpenExercise={openExercise} />}
+          {page === 'learn' && <LearnCenter setPage={setPagePersist} onOpenExercise={openExercise} searchQuery={searchQuery} />}
           {page === 'classroom' && <ClassroomView setPage={setPagePersist} />}
           {page === 'envcheck' && <EnvCheck />}
         </div>
@@ -435,9 +439,10 @@ function Sidebar({ page, setPage, user, onLogout }: {
 }
 
 // ============== 顶部栏 ==============
-function Topbar({ icon, title, setRunStatus, user, onLogout }: {
+function Topbar({ icon, title, setRunStatus, user, onLogout, searchQuery, setSearchQuery }: {
   icon: string; title: string; setRunStatus: (s: { id: string; logFile: string } | null) => void
   user: CurrentUser; onLogout: () => void
+  searchQuery: string; setSearchQuery: (q: string) => void
 }) {
   useEffect(() => {
     // 组件挂载时轮询一次任务状态（展示链路打通）
@@ -460,7 +465,7 @@ function Topbar({ icon, title, setRunStatus, user, onLogout }: {
       </div>
       <div className="search-box">
         <i className="fas fa-search"></i>
-        <input type="text" placeholder="搜索题目、代码、知识点..." />
+        <input type="text" placeholder="搜索题目、代码、知识点..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
       </div>
       <div className="topbar-actions">
         <button className="icon-btn" title="帮助">
@@ -884,22 +889,21 @@ function CodeEditor({ onRunStatus, exercise, onClearExercise, userId }: {
       })
       if (resp.ok) {
         const data = await resp.json()
-        if (data.taskId) {
-          onRunStatus({ id: data.taskId, logFile: data.logFile || '' })
-          // 轮询一次结果
-          await new Promise(r => setTimeout(r, 800))
-          try {
-            const stat = await fetch(`http://localhost:8000/tasks/${data.taskId}`).then(r => r.json())
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
-            setOutput(prev => [
-              ...prev,
-              { type: 'meta', text: `[YiCode] 任务ID: ${data.taskId} · 耗时 ${elapsed}s` },
-              ...(stat.stdout ? [{ type: 'success', text: stat.stdout }] : []),
-              ...(stat.stderr ? [{ type: 'error', text: stat.stderr }] : []),
-            ])
-            setRunning(false)
-            return
-          } catch { /* 轮询失败则走本地模拟 */ }
+        // 后端 /run 是同步执行，直接返回 stdout/stderr
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+        if (data.success !== false) {
+          const outLines: Array<{ type: string; text: string }> = [
+            { type: 'meta', text: `[YiCode] ${data.language || lang} · 耗时 ${data.elapsed_seconds || elapsed}s · 退出码 ${data.exit_code}` },
+          ]
+          if (data.stdout) outLines.push({ type: 'success', text: data.stdout })
+          if (data.stderr) outLines.push({ type: 'error', text: data.stderr })
+          if (!data.stdout && !data.stderr) {
+            outLines.push({ type: 'warn', text: '（程序执行无输出，请检查你的代码是否包含 print/console.log/cout 等输出语句）' })
+          }
+          if (data.error) outLines.push({ type: 'error', text: data.error })
+          setOutput(prev => [...prev, ...outLines])
+          setRunning(false)
+          return
         }
       }
     } catch { /* 后端离线时使用本地模拟 */ }
@@ -2118,7 +2122,7 @@ function CollabChannel() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
                     <span className={`role-badge role-${r}`}>{COLLAB_ROLE_LABEL[r]}</span>
                     {isMe && (
-                      <select value={myRole} onChange={e => onRoleChange(e.target.value as CollabRole)} style={{ marginLeft: 'auto', background: 'rgba(15,23,42,0.6)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 11, padding: '3px 6px', outline: 'none', fontFamily: 'inherit' }}>
+                      <select value={myRole} onChange={e => onRoleChange(e.target.value as CollabRole)} style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 6px' }}>
                         <option value="writer">写代码</option>
                         <option value="reviewer">评代码</option>
                         <option value="obs">观看中</option>
@@ -2145,7 +2149,7 @@ function CollabChannel() {
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', padding: '3px 8px', background: 'rgba(15,23,42,0.6)', borderRadius: 5 }}>
                   <i className="fas fa-share-alt" style={{ marginRight: 4 }}></i>实时同步中
                 </span>
-                <select value={lang} onChange={e => onLangChange(e.target.value as LangKey)} style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 12, padding: '4px 8px', outline: 'none', fontFamily: 'inherit' }}>
+                <select value={lang} onChange={e => onLangChange(e.target.value as LangKey)} style={{ fontSize: 12, padding: '4px 8px' }}>
                   {COLLAB_LANGS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}
                 </select>
                 <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => { setCode(CODE_TEMPLATES[lang]); scheduleSync(CODE_TEMPLATES[lang], lang) }}>
@@ -2213,9 +2217,10 @@ function CollabChannel() {
 }
 
 // ============== 学习中心 ==============
-function LearnCenter({ setPage, onOpenExercise }: {
+function LearnCenter({ setPage, onOpenExercise, searchQuery }: {
   setPage: (p: PageKey) => void
   onOpenExercise: (ex: Exercise) => void
+  searchQuery: string
 }) {
   const API_BASE = 'http://localhost:8000'
   const [courses, setCourses] = useState<Array<{
@@ -2224,6 +2229,12 @@ function LearnCenter({ setPage, onOpenExercise }: {
   }>>([])
   const [exercises, setExercises] = useState<Array<Exercise>>([])
   const [loading, setLoading] = useState(true)
+  const [difficultyFilter, setDifficultyFilter] = useState<string>('全部')
+  const [showPublish, setShowPublish] = useState(false)
+  // 发布题目表单
+  const [newEx, setNewEx] = useState({ title: '', description: '', difficulty: '简单', language: 'py', starter_code: '', expected_output: '', tags: '' })
+  const [publishing, setPublishing] = useState(false)
+  const [publishMsg, setPublishMsg] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -2244,6 +2255,48 @@ function LearnCenter({ setPage, onOpenExercise }: {
   const langIcon = (l: string) => l === 'py' ? 'fa-python' : l === 'js' ? 'fa-js' : l === 'java' ? 'fa-java' : l === 'cpp' ? 'fa-microchip' : l === 'cs' ? 'fa-hashtag' : 'fa-code'
   const courseCount = courses.length
   const exerciseCount = exercises.length
+
+  // 搜索 + 难度筛选
+  const filteredExercises = exercises.filter(ex => {
+    // 难度筛选
+    if (difficultyFilter !== '全部' && ex.difficulty !== difficultyFilter) return false
+    // 搜索筛选
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      return ex.title.toLowerCase().includes(q) ||
+             (ex.description || '').toLowerCase().includes(q) ||
+             (ex.tags || '').toLowerCase().includes(q) ||
+             (ex.language || '').toLowerCase().includes(q)
+    }
+    return true
+  })
+
+  const publishExercise = async () => {
+    if (!newEx.title.trim()) { setPublishMsg('请输入题目标题'); return }
+    if (!newEx.starter_code.trim()) { setPublishMsg('请输入代码内容'); return }
+    if (!newEx.expected_output.trim()) { setPublishMsg('请输入预期输出（标准答案输出）'); return }
+    setPublishing(true)
+    setPublishMsg('')
+    try {
+      const resp = await fetch(`${API_BASE}/exercises`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newEx)
+      })
+      const data = await resp.json()
+      if (resp.ok) {
+        setPublishMsg('✅ 题目发布成功！')
+        // 刷新题目列表
+        fetch(`${API_BASE}/exercises`).then(r => r.json()).then(d => setExercises(d.items || []))
+        setTimeout(() => { setShowPublish(false); setNewEx({ title: '', description: '', difficulty: '简单', language: 'py', starter_code: '', expected_output: '', tags: '' }); setPublishMsg('') }, 1500)
+      } else {
+        setPublishMsg(`❌ ${data.detail || '发布失败'}`)
+      }
+    } catch {
+      setPublishMsg('❌ 网络错误，请确认后端已启动')
+    }
+    setPublishing(false)
+  }
 
   return (
     <div className="fade-in learn-layout">
@@ -2278,19 +2331,33 @@ function LearnCenter({ setPage, onOpenExercise }: {
 
       <div className="panel">
         <div className="panel-header">
-          <div className="panel-title"><i className="fas fa-layer-group"></i> 推荐练习题</div>
-          <div className="panel-action"><i className="fas fa-filter"></i> 筛选难度</div>
+          <div className="panel-title"><i className="fas fa-layer-group"></i> 推荐练习题 {searchQuery.trim() && `(搜索: "${searchQuery}" · ${filteredExercises.length}题)`}</div>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <button className="btn btn-success" style={{ fontSize: '13px', padding: '6px 14px' }} onClick={() => setShowPublish(true)}>
+              <i className="fas fa-plus-circle"></i> 发布题目
+            </button>
+            <select
+              value={difficultyFilter}
+              onChange={e => setDifficultyFilter(e.target.value)}
+            >
+              <option value="全部">全部难度</option>
+              <option value="简单">简单</option>
+              <option value="中等">中等</option>
+              <option value="困难">困难</option>
+            </select>
+          </div>
         </div>
         <div className="exercise-grid">
           {loading ? (
             <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
               <i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }}></i> 正在加载练习题…
             </div>
-          ) : exercises.length === 0 ? (
+          ) : filteredExercises.length === 0 ? (
             <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              暂无练习题
+              <i className="fas fa-search" style={{ marginRight: '8px' }}></i>
+              {searchQuery.trim() ? `未找到与 "${searchQuery}" 相关的题目` : '暂无练习题'}
             </div>
-          ) : exercises.map((ex) => (
+          ) : filteredExercises.map((ex) => (
             <div key={ex.id} className="ex-card" onClick={() => onOpenExercise(ex)}>
               <div className="ex-card-header">
                 <div className={`ex-icon ${ex.language}`}>
@@ -2335,6 +2402,138 @@ function LearnCenter({ setPage, onOpenExercise }: {
           </div>
         ))}
       </div>
+
+      {/* 发布题目弹窗 */}
+      {showPublish && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px',
+        }} onClick={() => setShowPublish(false)}>
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '14px',
+            padding: '28px', maxWidth: '640px', width: '100%', maxHeight: '90vh', overflowY: 'auto',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 800, margin: 0 }}>
+                <i className="fas fa-plus-circle" style={{ marginRight: '8px', color: 'var(--primary-light)' }}></i>
+                发布新题目
+              </h3>
+              <button className="icon-btn" onClick={() => setShowPublish(false)}><i className="fas fa-times"></i></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* 题目标题 */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>题目标题 *</label>
+                <input
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: '14px' }}
+                  placeholder="如：两数之和、反转链表..."
+                  value={newEx.title}
+                  onChange={e => setNewEx({ ...newEx, title: e.target.value })}
+                />
+              </div>
+
+              {/* 题目描述 */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>题目描述</label>
+                <textarea
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: '14px', minHeight: '60px', resize: 'vertical' }}
+                  placeholder="描述题目要求，如：给定一个整数数组 nums 和目标值 target..."
+                  value={newEx.description}
+                  onChange={e => setNewEx({ ...newEx, description: e.target.value })}
+                />
+              </div>
+
+              {/* 难度 + 语言 */}
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>难度</label>
+                  <select
+                    style={{ width: '100%' }}
+                    value={newEx.difficulty}
+                    onChange={e => setNewEx({ ...newEx, difficulty: e.target.value })}
+                  >
+                    <option value="简单">简单</option>
+                    <option value="中等">中等</option>
+                    <option value="困难">困难</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>语言</label>
+                  <select
+                    style={{ width: '100%' }}
+                    value={newEx.language}
+                    onChange={e => setNewEx({ ...newEx, language: e.target.value })}
+                  >
+                    <option value="py">Python</option>
+                    <option value="js">JavaScript</option>
+                    <option value="cpp">C++</option>
+                    <option value="java">Java</option>
+                    <option value="go">Go</option>
+                    <option value="cs">C#</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 代码内容 */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>代码内容（初始代码骨架） *</label>
+                <textarea
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: '13px', minHeight: '100px', resize: 'vertical', fontFamily: "'JetBrains Mono', monospace" }}
+                  placeholder="def twoSum(nums, target):&#10;    pass"
+                  value={newEx.starter_code}
+                  onChange={e => setNewEx({ ...newEx, starter_code: e.target.value })}
+                />
+              </div>
+
+              {/* 预期输出 */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>预期输出（标准答案输出） *</label>
+                <textarea
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: '13px', minHeight: '60px', resize: 'vertical', fontFamily: "'JetBrains Mono', monospace" }}
+                  placeholder="如：[0, 1]&#10;（用户代码运行后的 stdout 必须与此完全匹配才算通过）"
+                  value={newEx.expected_output}
+                  onChange={e => setNewEx({ ...newEx, expected_output: e.target.value })}
+                />
+              </div>
+
+              {/* 标签 */}
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px', display: 'block' }}>标签（逗号分隔）</label>
+                <input
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: '14px' }}
+                  placeholder="如：数组, 哈希表, 简单"
+                  value={newEx.tags}
+                  onChange={e => setNewEx({ ...newEx, tags: e.target.value })}
+                />
+              </div>
+
+              {/* 消息提示 */}
+              {publishMsg && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(99,102,241,0.1)', fontSize: '13px', color: 'var(--primary-light)', textAlign: 'center' }}>
+                  {publishMsg}
+                </div>
+              )}
+
+              {/* 按钮 */}
+              <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                <button className="btn btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setShowPublish(false)}>
+                  取消
+                </button>
+                <button className="btn btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={publishExercise} disabled={publishing}>
+                  {publishing ? (
+                    <><i className="fas fa-spinner fa-spin"></i> 发布中...</>
+                  ) : (
+                    <><i className="fas fa-paper-plane"></i> 发布题目</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -2509,10 +2708,8 @@ function ClassroomView({ setPage }: { setPage: (p: PageKey) => void }) {
           const more = Math.max(0, c.student_count - avatars.length)
           return (
             <div key={c.id} className="class-card" onClick={() => openCourse(c)}>
-              <div className="class-banner" style={{ background: `linear-gradient(135deg, ${c.color}, ${c.color}cc)` }}>
-                <i className={`fas ${c.icon}`} style={{ fontSize: '32px' }}></i>
-              </div>
               <div className="class-title">
+                <i className={`fas ${c.icon}`} style={{ marginRight: '8px', color: c.color, fontSize: '20px' }}></i>
                 {c.title}
                 <span className="teacher-tag">{c.instructor} · 授课中</span>
               </div>
@@ -2705,8 +2902,8 @@ function EnvCheck() {
         </button>
       </div>
 
-      {/* 语言环境卡片 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+      {/* 语言环境卡片 - 纵向布局 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {allEntries.map(([key, info]) => (
           <div key={key} style={{
             padding: '18px', borderRadius: '12px',

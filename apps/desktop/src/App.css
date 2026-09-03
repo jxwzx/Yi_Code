@@ -46,6 +46,61 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ============ 下拉框统一深色主题 ============ */
+select {
+  background: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+  font-family: inherit !important;
+  outline: none !important;
+  cursor: pointer !important;
+  transition: var(--transition) !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 10px center !important;
+  padding-right: 32px !important;
+}
+
+select:hover {
+  border-color: var(--border-light) !important;
+}
+
+select:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+}
+
+/* 下拉框选项 - 深色背景 */
+option {
+  background: #1e293b !important;
+  color: var(--text-primary) !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+}
+
+option:hover,
+option:focus {
+  background: #334155 !important;
+  color: #fff !important;
+}
+
+option:checked,
+option:selected {
+  background: var(--primary) !important;
+  color: #fff !important;
+}
+
+/* 下拉框展开的容器（部分浏览器支持） */
+select option:active {
+  background: var(--primary-dark) !important;
+  color: #fff !important;
+}
+
 /* ============ 背景装饰 ============ */
 body::before {
   content: '';

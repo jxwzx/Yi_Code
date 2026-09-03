@@ -608,6 +608,77 @@ def exercises_db(difficulty: Optional[str] = None, language: Optional[str] = Non
     return {"count": len(items), "items": items}
 
 
+class CreateExerciseRequest(BaseModel):
+    title: str
+    description: str = ""
+    difficulty: str = "简单"
+    language: str = "py"
+    starter_code: str = ""
+    solution: str = ""
+    expected_output: str = ""
+    tags: str = ""
+    course_id: Optional[int] = None
+
+
+@app.post("/exercises")
+def create_exercise(req: CreateExerciseRequest):
+    """创建用户自定义题目"""
+    # 确保 expected_output 列存在
+    try:
+        db_execute("ALTER TABLE exercises ADD COLUMN expected_output TEXT DEFAULT ''")
+    except Exception:
+        pass  # 列已存在
+
+    ex_id = db_execute(
+        """INSERT INTO exercises (course_id, title, description, difficulty, language, starter_code, solution, expected_output, tags)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (req.course_id, req.title, req.description, req.difficulty, req.language,
+         req.starter_code, req.solution, req.expected_output, req.tags)
+    )
+    return {
+        "id": ex_id,
+        "title": req.title,
+        "difficulty": req.difficulty,
+        "language": req.language,
+        "message": "题目发布成功"
+    }
+
+
+class CheckSolutionRequest(BaseModel):
+    exercise_id: int
+    code: str
+    language: str = "py"
+
+
+@app.post("/exercises/check")
+def check_solution(req: CheckSolutionRequest):
+    """验证用户代码：运行代码并比对预期输出"""
+    ex = query_one("SELECT * FROM exercises WHERE id = ?", (req.exercise_id,))
+    if not ex:
+        raise HTTPException(404, "题目不存在")
+
+    expected = (ex.get("expected_output") or "").strip()
+    if not expected:
+        # 没有预期输出，只执行返回结果
+        result = runtime.run_code(req.language, req.code, 15, None)
+        return {"matched": None, "stdout": result.get("stdout", ""), "stderr": result.get("stderr", ""),
+                "exit_code": result.get("exit_code", -1), "message": "此题未设置预期输出，无法自动判题"}
+
+    result = runtime.run_code(req.language, req.code, 15, None)
+    actual = (result.get("stdout") or "").strip()
+    matched = actual == expected
+
+    return {
+        "matched": matched,
+        "expected": expected,
+        "actual": actual,
+        "stdout": result.get("stdout", ""),
+        "stderr": result.get("stderr", ""),
+        "exit_code": result.get("exit_code", -1),
+        "message": "✅ 答案正确！通过" if matched else "❌ 输出不匹配，请检查代码逻辑"
+    }
+
+
 # ============ 学习任务 ============
 class TaskRequest(BaseModel):
     user_id: int
