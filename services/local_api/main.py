@@ -108,6 +108,9 @@ class AIChatRequest(BaseModel):
     code: Optional[str] = Field(None, description="上下文代码")
     language: Optional[str] = Field(None, description="代码语言")
     session_id: Optional[str] = Field(None, description="会话ID")
+    api_key: Optional[str] = Field(None, description="用户 API Key")
+    error_msg: Optional[str] = Field(None, description="错误信息")
+    mode: Optional[str] = Field("normal", description="对话模式: normal/deep/socratic")
 
 
 class DiagnoseRequest(BaseModel):
@@ -344,10 +347,41 @@ async def install_available():
 
 
 # ============ AI 助教接口 ============
+def _get_mode_system_prompt(mode: str, lang: str = "py") -> str:
+    """根据模式返回系统提示词"""
+    if mode == "deep":
+        return """你是 YiCode 深度思考模式的 AI 编程助教。你的特点是：
+1. 深入分析问题本质，不只给表面答案
+2. 解释底层原理和实现机制
+3. 提供多种解决方案并对比优劣
+4. 给出实际应用场景和最佳实践
+5. 使用中文回答，逻辑清晰，层次分明"""
+    elif mode == "socratic":
+        return """你是 YiCode 苏格拉底引导模式的 AI 编程助教。你的教学方法是：
+1. 不要直接给出答案，而是通过提问引导学生思考
+2. 用问题启发学生自己发现问题和解决方案
+3. 循序渐进，从简单问题开始，逐步深入
+4. 鼓励学生尝试和犯错，从错误中学习
+5. 用中文回答，语气亲切、鼓励性强
+6. 每次回复都以引导性问题结尾，激发学生继续思考"""
+    else:  # normal
+        return "你是 YiCode 编程助教，专注于帮助初学者和大学生学习编程。请直接给出代码，用中文注释解释。简洁明了。"
+
+
 @app.post("/ai/chat")
 async def ai_chat(req: AIChatRequest):
     """AI 对话接口 - 支持问题检测、知识点讲解"""
     session_id = req.session_id or f"sess_{uuid.uuid4().hex[:8]}"
+    mode = req.mode or "normal"
+
+    # 如果用户提供了 API Key，使用用户提供的；否则使用全局的
+    active_ai = ai
+    if req.api_key:
+        try:
+            from ai.provider import MiMoProvider
+            active_ai = MiMoProvider(api_key=req.api_key)
+        except Exception:
+            pass  # 回退到全局 ai
 
     # 智能路由：如果是代码检查请求，增强处理
     user_msg = req.message
@@ -360,17 +394,21 @@ async def ai_chat(req: AIChatRequest):
         if ("检查" in user_msg or "错误" in user_msg or "bug" in user_msg or "问题" in user_msg) and code:
             # 代码诊断
             if req.error_msg:
-                reply = ai.diagnose_error(req.error_msg, code)
+                reply = active_ai.diagnose_error(req.error_msg, code)
             else:
-                reply = _enhanced_code_review(code, lang, ai)
+                reply = _enhanced_code_review(code, lang, active_ai)
         elif ("解释" in user_msg or "讲解" in user_msg or "说明" in user_msg) and code:
-            reply = ai.explain_code(code)
+            reply = active_ai.explain_code(code)
         else:
-            # 通用代码生成 / 知识问答
-            prompt = user_msg
+            # 通用代码生成 / 知识问答 - 使用模式特定的系统提示词
+            system_prompt = _get_mode_system_prompt(mode, lang)
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg}
+            ]
             if code:
-                prompt += f"\n\n【上下文代码 ({lang})】\n```\n{code}\n```"
-            reply = ai.generate_code(prompt, code or None)
+                messages[1]["content"] += f"\n\n【上下文代码 ({lang})】\n```\n{code}\n```"
+            reply = active_ai.chat(messages, max_tokens=512 if mode != "deep" else 1024)
     except Exception as e:
         reply = f"[AI 服务暂时不可用，使用本地知识库回复] 抱歉遇到小问题: {e}. 你可以试试点击快捷操作按钮。"
 
@@ -390,7 +428,17 @@ async def ai_chat(req: AIChatRequest):
 
 def _enhanced_code_review(code: str, lang: str, provider: AIProvider) -> str:
     """增强版代码评审：provider诊断 + 本地规则库"""
-    provider_resp = provider.diagnose_error("代码审查请求", code) if isinstance(provider, LocalAIProvider) else provider.diagnose_error("", code)
+    # 使用 chat 接口做代码审查，而不是 diagnose_error
+    if isinstance(provider, LocalAIProvider):
+        provider_resp = provider.chat([
+            {"role": "system", "content": "你是代码审查专家。请检查代码中的错误、警告和改进建议。"},
+            {"role": "user", "content": f"请审查以下 {lang} 代码：\n```\n{code}\n```"},
+        ])
+    else:
+        provider_resp = provider.chat([
+            {"role": "system", "content": "你是代码审查专家。请用中文分析代码中的问题，包括：1.语法错误 2.逻辑漏洞 3.性能问题 4.改进建议。简洁明了。"},
+            {"role": "user", "content": f"审查代码：\n```{lang}\n{code}\n```"},
+        ], max_tokens=512)
     # 追加本地更详细的提示
     base = f"📝 **代码评审报告 ({lang.upper()})**\n\n"
     base += f"✅ **代码长度**: {len(code.splitlines())} 行, {len(code)} 字符\n\n"

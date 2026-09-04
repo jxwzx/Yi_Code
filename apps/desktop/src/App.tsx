@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react'
 import './App.css'
+import { MonacoCodeEditor } from './MonacoEditor'
 
 // ============== YiCode 类型定义 ==============
 type PageKey = 'dashboard' | 'editor' | 'ai' | 'flowchart' | 'collab' | 'learn' | 'classroom' | 'envcheck' | 'admin'
@@ -861,6 +862,7 @@ function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId }: {
   onClearExercise: () => void
   userId: number
 }) {
+  const isDarkTheme = localStorage.getItem('yicode_theme') !== 'light'
   const [lang, setLang] = useState<LangKey>('py')
   const [code, setCode] = useState<string>(CODE_TEMPLATES.py)
   const [outputTab, setOutputTab] = useState<'result' | 'error' | 'debug'>('result')
@@ -1158,30 +1160,13 @@ function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId }: {
           </div>
 
           <div className="code-editor-area">
-            <div className="code-lines-container">
-              <div className="line-numbers">
-                {Array.from({ length: lineCount }, (_, i) => (
-                  <div key={i} style={{ height: '22.95px' }}>{i + 1}</div>
-                ))}
-              </div>
-              <textarea
-                className="code-textarea"
-                value={code}
-                onChange={e => { setCode(e.target.value); scheduleAutoSave(e.target.value, lang) }}
-                spellCheck={false}
-                onKeyDown={e => {
-                  if (e.key === 'Tab') {
-                    e.preventDefault()
-                    const ta = e.target as HTMLTextAreaElement
-                    const s = ta.selectionStart, end = ta.selectionEnd
-                    const newCode = code.slice(0, s) + '    ' + code.slice(end)
-                    setCode(newCode)
-                    scheduleAutoSave(newCode, lang)
-                    setTimeout(() => { ta.selectionStart = ta.selectionEnd = s + 4 }, 0)
-                  }
-                }}
-              />
-            </div>
+            <MonacoCodeEditor
+              value={code}
+              onChange={(value) => { setCode(value); scheduleAutoSave(value, lang) }}
+              language={lang}
+              theme={isDarkTheme ? 'vs-dark' : 'light'}
+              height="100%"
+            />
           </div>
 
           <div className="output-panel">
@@ -1332,15 +1317,31 @@ function simulateRun(lang: LangKey, code: string): { stdout: string; stderr: str
 
 // ============== AI 助教面板 ==============
 function AIPanel({ code, lang, standalone }: { code?: string; lang?: LangKey; standalone?: boolean }) {
+  const getWelcomeMsg = (m: string) => {
+    if (m === 'deep') return `🧠 **深度思考模式** 已启用\n\n我会为你：\n• 深入分析问题本质，揭示底层原理\n• 提供多种解决方案并对比优劣\n• 给出实际应用场景和最佳实践\n\n有什么问题想深入探讨？`
+    if (m === 'socratic') return `🎯 **苏格拉底引导模式** 已启用\n\n我不会直接告诉你答案，而是：\n• 通过提问引导你自己思考\n• 帮你一步步发现问题的解决方案\n• 鼓励你尝试和实验\n\n准备好了吗？告诉我你想学什么？`
+    return `你好！我是你的 **AI 编程助教** 🤖✨\n\n我可以帮你：\n• 🔍 **检测代码问题** - 语法错误、逻辑漏洞、性能瓶颈\n• 💡 **优化建议** - 让代码更高效、更规范\n• 📚 **知识点讲解** - 随时解答编程疑问\n• 🚀 **自动补全** - 生成代码片段和解决方案\n\n请选择右上角的快捷操作，或直接向我提问！`
+  }
+
+  const [mode, setMode] = useState<'normal' | 'deep' | 'socratic'>(() => {
+    return (localStorage.getItem('yicode_ai_mode') as any) || 'normal'
+  })
   const [messages, setMessages] = useState<AIMessage[]>([
-    {
-      role: 'assistant',
-      text: `你好！我是你的 **AI 编程助教** 🤖✨\n\n我可以帮你：\n• 🔍 **检测代码问题** - 语法错误、逻辑漏洞、性能瓶颈\n• 💡 **优化建议** - 让代码更高效、更规范\n• 📚 **知识点讲解** - 随时解答编程疑问\n• 🚀 **自动补全** - 生成代码片段和解决方案\n\n请选择右上角的快捷操作，或直接向我提问！`,
-    },
+    { role: 'assistant', text: getWelcomeMsg(localStorage.getItem('yicode_ai_mode') || 'normal') },
   ])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
-  const apiKey = localStorage.getItem('yicode_ai_token') || ''
+
+  const modeInfo = {
+    normal: { icon: 'fa-robot', label: '普通模式', color: 'var(--primary)', desc: '直接回答问题' },
+    deep: { icon: 'fa-brain', label: '深度思考', color: '#8b5cf6', desc: '深入分析原理' },
+    socratic: { icon: 'fa-question-circle', label: '苏格拉底', color: '#10b981', desc: '引导式学习' },
+  }
+
+  const switchMode = (newMode: 'normal' | 'deep' | 'socratic') => {
+    setMode(newMode)
+    localStorage.setItem('yicode_ai_mode', newMode)
+  }
 
   const scrollRef = (el: HTMLDivElement | null) => {
     if (el) setTimeout(() => (el.scrollTop = el.scrollHeight), 10)
@@ -1354,15 +1355,18 @@ function AIPanel({ code, lang, standalone }: { code?: string; lang?: LangKey; st
     setInput('')
     setSending(true)
 
+    // 每次发送时从 localStorage 读取最新 API Key
+    const currentApiKey = localStorage.getItem('yicode_ai_token') || ''
+
     // 先尝试后端 API
     let reply: AIMessage | null = null
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (apiKey) headers['X-API-Key'] = apiKey
+      if (currentApiKey) headers['X-API-Key'] = currentApiKey
       const resp = await fetch('http://localhost:8000/ai/chat', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ message: content, code, language: lang, api_key: apiKey || undefined })
+        body: JSON.stringify({ message: content, code, language: lang, api_key: currentApiKey || undefined, mode })
       })
       if (resp.ok) {
         const data = await resp.json()
@@ -1396,15 +1400,35 @@ function AIPanel({ code, lang, standalone }: { code?: string; lang?: LangKey; st
     <div className={`ai-panel ${standalone ? '' : ''}`} style={standalone ? { maxWidth: '900px', margin: '0 auto', height: 'calc(100vh - 64px - 48px)' } : { height: '100%' }}>
       <div className="ai-header">
         <div className="ai-header-left">
-          <div className="ai-avatar"><i className="fas fa-robot"></i></div>
+          <div className="ai-avatar" style={{ background: `linear-gradient(135deg, ${modeInfo[mode].color}, ${modeInfo[mode].color}cc)` }}>
+            <i className={`fas ${modeInfo[mode].icon}`}></i>
+          </div>
           <div className="ai-info">
-            <h3>AI 编程助教 · 易码小助手</h3>
-            <p>在线 · GPT-4 级智能</p>
+            <h3>AI 编程助教 · {modeInfo[mode].label}</h3>
+            <p style={{ color: modeInfo[mode].color }}>{modeInfo[mode].desc}</p>
           </div>
         </div>
-        <button className="icon-btn" title="清空对话" onClick={() => setMessages([messages[0]])}>
-          <i className="fas fa-trash-alt"></i>
-        </button>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {/* 模式切换按钮 */}
+          {(Object.keys(modeInfo) as Array<'normal' | 'deep' | 'socratic'>).map(m => (
+            <button
+              key={m}
+              className="icon-btn"
+              title={modeInfo[m].label}
+              onClick={() => switchMode(m)}
+              style={{
+                background: mode === m ? `${modeInfo[m].color}22` : 'transparent',
+                border: mode === m ? `1px solid ${modeInfo[m].color}44` : '1px solid transparent',
+                color: mode === m ? modeInfo[m].color : 'var(--text-muted)',
+              }}
+            >
+              <i className={`fas ${modeInfo[m].icon}`} style={{ fontSize: '14px' }}></i>
+            </button>
+          ))}
+          <button className="icon-btn" title="清空对话" onClick={() => setMessages([messages[0]])}>
+            <i className="fas fa-trash-alt"></i>
+          </button>
+        </div>
       </div>
 
       <div className="ai-messages" ref={scrollRef}>

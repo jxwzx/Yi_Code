@@ -43,32 +43,32 @@ class AIProvider(ABC):
 
     def generate_code(self, prompt: str, context: Optional[str] = None) -> str:
         """生成代码"""
-        sys_msg = "你是 YiCode 编程助教，专注于帮助初学者和大学生学习编程。请直接给出代码，用中文注释解释。"
+        sys_msg = "你是 YiCode 编程助教，专注于帮助初学者和大学生学习编程。请直接给出代码，用中文注释解释。简洁明了。"
         user_msg = f"请生成以下代码：\n{prompt}"
         if context:
             user_msg += f"\n\n参考上下文：\n{context}"
         return self.chat([
             {"role": "system", "content": sys_msg},
             {"role": "user", "content": user_msg},
-        ])
+        ], max_tokens=512)
 
     def explain_code(self, code: str) -> str:
         """解释代码"""
         return self.chat([
-            {"role": "system", "content": "你是 YiCode 编程助教。请逐行解释代码逻辑，用中文回答，适合初学者理解。"},
+            {"role": "system", "content": "你是 YiCode 编程助教。请逐行解释代码逻辑，用中文回答，适合初学者理解。简洁明了。"},
             {"role": "user", "content": f"请解释这段代码：\n```\n{code}\n```"},
-        ])
+        ], max_tokens=512)
 
     def diagnose_error(self, error: str, code: Optional[str] = None) -> str:
         """诊断错误"""
         user_msg = f"代码运行出错：\n```\n{error}\n```"
         if code:
             user_msg += f"\n\n相关代码：\n```\n{code}\n```"
-        user_msg += "\n请分析错误原因并给出修复建议。"
+        user_msg += "\n请分析错误原因并给出修复建议。简洁明了。"
         return self.chat([
-            {"role": "system", "content": "你是 YiCode 编程助教。请分析代码错误原因，给出修复方案，用中文回答。"},
+            {"role": "system", "content": "你是 YiCode 编程助教。请分析代码错误原因，给出修复方案，用中文回答。简洁明了。"},
             {"role": "user", "content": user_msg},
-        ])
+        ], max_tokens=512)
 
 
 class MiMoProvider(AIProvider):
