@@ -2,6 +2,12 @@ import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react'
 import './App.css'
 import { MonacoCodeEditor } from './MonacoEditor'
 
+// ============== 全局 API 配置 ==============
+const _hostname = window.location.hostname
+const _isLAN = !!_hostname && _hostname !== 'localhost' && _hostname !== '127.0.0.1'
+const API_BASE = _isLAN ? `http://${_hostname}:8000` : 'http://localhost:8000'
+const WS_BASE = _isLAN ? `ws://${_hostname}:8000` : 'ws://localhost:8000'
+
 // ============== YiCode 类型定义 ==============
 type PageKey = 'dashboard' | 'editor' | 'ai' | 'flowchart' | 'collab' | 'learn' | 'classroom' | 'envcheck' | 'admin'
 type LangKey = 'py' | 'js' | 'cpp' | 'java' | 'go' | 'cs'
@@ -174,7 +180,10 @@ export default function App() {
           {page === 'editor' && <CodeEditor onRunStatus={setRunStatus} exercise={selectedExercise} onClearExercise={() => { setSelectedExercise(null); localStorage.removeItem('yicode_exercise_id') }} userId={currentUser.user_id} />}
           {page === 'ai' && <AIPanel standalone />}
           {page === 'flowchart' && <FlowchartView />}
-          {page === 'collab' && <CollabChannel />}
+          {/* 协作频道始终保持挂载，避免切换选项卡时 WebSocket 断开 */}
+          <div style={{ display: page === 'collab' ? 'flex' : 'none', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+            <CollabChannel username={currentUser.username} />
+          </div>
           {page === 'learn' && <LearnCenter setPage={setPagePersist} onOpenExercise={openExercise} searchQuery={searchQuery} />}
           {page === 'classroom' && <ClassroomView setPage={setPagePersist} />}
           {page === 'envcheck' && <EnvCheck />}
@@ -200,7 +209,7 @@ function LoginPage({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
     setLoading(true)
     try {
       if (mode === 'login') {
-        const resp = await fetch('http://localhost:8000/auth/login', {
+        const resp = await fetch(API_BASE + '/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password }),
@@ -209,7 +218,7 @@ function LoginPage({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
         if (!resp.ok) throw new Error(data.detail || '登录失败')
         onLogin(data)
       } else {
-        const resp = await fetch('http://localhost:8000/auth/register', {
+        const resp = await fetch(API_BASE + '/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password, email: email || undefined }),
@@ -438,7 +447,7 @@ function Topbar({ icon, title, setRunStatus, user, onLogout, searchQuery, setSea
 
   useEffect(() => {
     // 组件挂载时轮询一次任务状态（展示链路打通）
-    fetch('http://localhost:8000/tasks')
+    fetch(API_BASE + '/tasks')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (data && data.tasks && data.tasks.length > 0) {
@@ -634,7 +643,7 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
   }>>([])
   const loadDashboard = async () => {
     try {
-      const resp = await fetch(`http://localhost:8000/users/${userId}/dashboard`)
+      const resp = await fetch(`API_BASE/users/${userId}/dashboard`)
       if (resp.ok) {
         const data = await resp.json()
         setStats(data.stats || {})
@@ -652,7 +661,7 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
 
   const loadCourses = async () => {
     try {
-      const resp = await fetch('http://localhost:8000/courses')
+      const resp = await fetch(API_BASE + '/courses')
       if (resp.ok) {
         const data = await resp.json()
         setCourses(data.courses || [])
@@ -670,7 +679,7 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
   const toggleTask = async (taskId: number, currentCompleted: number) => {
     const newCompleted = currentCompleted === 0
     try {
-      await fetch(`http://localhost:8000/tasks/${taskId}?completed=${newCompleted}`, { method: 'PUT' })
+      await fetch(`API_BASE/tasks/${taskId}?completed=${newCompleted}`, { method: 'PUT' })
       await loadDashboard()
     } catch (e) {
       // 忽略切换失败
@@ -881,7 +890,7 @@ function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId }: {
     if (exerciseId && !exercise) {
       // 刷新后恢复：从 API 获取最新草稿
       setRestored(true)
-      fetch(`http://localhost:8000/drafts/${userId}/latest`)
+      fetch(`API_BASE/drafts/${userId}/latest`)
         .then(r => r.json())
         .then(data => {
           if (data.found && data.exercise) {
@@ -899,7 +908,7 @@ function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId }: {
     } else if (exerciseId && exercise) {
       // 有 exercise prop 且 localStorage 有 id：检查是否有草稿
       setRestored(true)
-      fetch(`http://localhost:8000/drafts/${userId}/${exerciseId}`)
+      fetch(`API_BASE/drafts/${userId}/${exerciseId}`)
         .then(r => r.json())
         .then(data => {
           if (data.found && data.draft) {
@@ -937,7 +946,7 @@ function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId }: {
     setSaveStatus('saving')
     saveTimerRef.current = setTimeout(async () => {
       try {
-        await fetch('http://localhost:8000/drafts', {
+        await fetch(API_BASE + '/drafts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1003,7 +1012,7 @@ function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId }: {
 
     // 先尝试调用后端真实执行
     try {
-      const resp = await fetch('http://localhost:8000/run', {
+      const resp = await fetch(API_BASE + '/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ language: lang, code })
@@ -1363,7 +1372,7 @@ function AIPanel({ code, lang, standalone }: { code?: string; lang?: LangKey; st
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (currentApiKey) headers['X-API-Key'] = currentApiKey
-      const resp = await fetch('http://localhost:8000/ai/chat', {
+      const resp = await fetch(API_BASE + '/ai/chat', {
         method: 'POST',
         headers,
         body: JSON.stringify({ message: content, code, language: lang, api_key: currentApiKey || undefined, mode })
@@ -1690,7 +1699,7 @@ function FlowchartView() {
     setLoading(true)
     setError('')
     try {
-      const resp = await fetch('http://localhost:8000/ai/flowchart', {
+      const resp = await fetch(API_BASE + '/ai/flowchart', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, language: 'auto' }),
@@ -1921,13 +1930,10 @@ const COLLAB_ENTRY_INPUT = {
   fontFamily: 'inherit',
 }
 
-function CollabChannel() {
-  const API_BASE = 'http://localhost:8000'
-  const WS_BASE = 'ws://localhost:8000'
-
+function CollabChannel({ username }: { username?: string }) {
   const [view, setView] = useState<'entry' | 'room'>('entry')
   const [mode, setMode] = useState<'create' | 'join'>('create')
-  const [name, setName] = useState('')
+  const [name, setName] = useState(username || '')
   const [joinCode, setJoinCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -1945,6 +1951,8 @@ function CollabChannel() {
   const [chatInput, setChatInput] = useState('')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [copied, setCopied] = useState('')
+  const [writeRequests, setWriteRequests] = useState<string[]>([]) // 申请写权限的用户名列表
+  const [writeRequested, setWriteRequested] = useState(false) // 当前用户是否已申请
 
   const wsRef = useRef<WebSocket | null>(null)
   const syncTimer = useRef<number | null>(null)
@@ -1979,6 +1987,16 @@ function CollabChannel() {
     setMyRole(r)
     sendWS({ type: 'role_change', role: r })
   }
+  // 申请写权限
+  const requestWrite = () => {
+    sendWS({ type: 'write_request' })
+    setWriteRequested(true)
+  }
+  // 房主审批写权限
+  const approveWrite = (targetName: string, approved: boolean) => {
+    sendWS({ type: 'write_approve', target: targetName, approved })
+    setWriteRequests(prev => prev.filter(n => n !== targetName))
+  }
   const sendChat = () => {
     const t = chatInput.trim()
     if (!t) return
@@ -1993,24 +2011,39 @@ function CollabChannel() {
     }])
     setChatInput('')
   }
-  const leaveRoom = (reason?: string) => {
+  const leaveRoom = (reason?: string, clearStorage = true) => {
     if (syncTimer.current) { clearTimeout(syncTimer.current); syncTimer.current = null }
     const ws = wsRef.current
     if (ws) { try { ws.close() } catch { /* ignore */ } wsRef.current = null }
+    if (clearStorage) localStorage.removeItem('yicode_collab_room')
     setView('entry')
     setRoomCode(''); setLanIp(''); setShareUrl(''); setHost('')
     setMembers([]); setMyName(''); setMyColor('a'); setMyRole('writer')
     setCode(CODE_TEMPLATES.py); setLang('py')
     setChatMessages([]); setChatInput('')
     setCreated(null); setJoinCode('')
+    setWriteRequests([]); setWriteRequested(false)
     setErr(reason || '')
   }
-  // WebSocket 生命周期：挂载时不主动连接（需先有用户名/房间码），仅在卸载时清理连接与定时器
+  // WebSocket 生命周期：挂载时检查 localStorage 自动重连，卸载时不关闭 WS（刷新时让浏览器自然处理）
   useEffect(() => {
+    // 刷新后自动重连
+    try {
+      const saved = localStorage.getItem('yicode_collab_room')
+      if (saved) {
+        const info = JSON.parse(saved)
+        if (info.roomCode && info.myName && info.wsUrl) {
+          setRoomCode(info.roomCode); setMyName(info.myName); setMyColor(info.myColor || 'a'); setHost(info.host || '')
+          setLanIp(info.lanIp || ''); setShareUrl(info.shareUrl || '')
+          setMyRole(info.myName === info.host ? 'writer' : 'obs')
+          setView('room')
+          connectRoom(info.wsUrl, info.myName, info.myColor || 'a', info.host || '')
+        }
+      }
+    } catch { /* ignore */ }
     return () => {
       if (syncTimer.current) clearTimeout(syncTimer.current)
-      const ws = wsRef.current
-      if (ws) { try { ws.close() } catch { /* ignore */ } wsRef.current = null }
+      // 不在此关闭 WS：刷新时浏览器会自然关闭连接，避免服务端过早移除成员
     }
   }, [])
   const connectRoom = (wsUrl: string, userName: string, color: string, hostName: string) => {
@@ -2019,7 +2052,12 @@ function CollabChannel() {
     try {
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
-      ws.onopen = () => { everOpen = true; ws.send(JSON.stringify({ name: userName, role: 'writer', color })) }
+      ws.onopen = () => {
+        everOpen = true
+        // 房主默认为 writer，其他成员默认为 obs（需要申请写权限）
+        const defaultRole = userName === hostName ? 'writer' : 'obs'
+        ws.send(JSON.stringify({ name: userName, role: defaultRole, color }))
+      }
       ws.onmessage = (ev: MessageEvent) => {
         let data: Record<string, any>
         try { data = JSON.parse(ev.data) } catch { return }
@@ -2029,6 +2067,10 @@ function CollabChannel() {
             setMembers((data.members || []) as CollabMember[])
             if (data.code) setCode(data.code as string)
             if (data.language) setLang(data.language as LangKey)
+            // 同步当前用户的角色（非房主默认为 obs）
+            { const me = (data.members || []).find((m: CollabMember) => m.name === userName)
+              if (me) setMyRole(me.role as CollabRole)
+            }
             break
           case 'member_joined':
           case 'member_left':
@@ -2045,7 +2087,20 @@ function CollabChannel() {
           case 'role_changed':
             setMembers((data.members || []) as CollabMember[])
             { const me = (data.members || []).find((m: CollabMember) => m.name === userName)
-              if (me) setMyRole(me.role as CollabRole) }
+              if (me) {
+                setMyRole(me.role as CollabRole)
+                // 如果被批准为 writer，清除申请状态
+                if (me.role === 'writer' && data.approved && data.target === userName) {
+                  setWriteRequested(false)
+                }
+              }
+            }
+            break
+          case 'write_request':
+            // 房主收到成员的写权限申请
+            if (data.from) {
+              setWriteRequests(prev => prev.includes(data.from) ? prev : [...prev, data.from])
+            }
             break
           case 'chat':
             if ((data.from || '') === userName) return // 自己发送的消息已乐观渲染，忽略服务端回广播
@@ -2066,7 +2121,8 @@ function CollabChannel() {
       }
       ws.onclose = () => {
         if (wsRef.current === ws) {
-          leaveRoom(everOpen ? '连接已断开，请重新进入房间' : '无法连接到房间服务，请确认本地服务（services/local_api）已启动')
+          // 不清除 localStorage，保留重连信息
+          leaveRoom(everOpen ? '连接已断开，请刷新页面重新连接' : '无法连接到房间服务，请确认本地服务（services/local_api）已启动', false)
         }
       }
     } catch (e) {
@@ -2089,14 +2145,19 @@ function CollabChannel() {
       setErr('创建房间失败：' + (e as Error).message + '（请确认本地服务运行在 ' + API_BASE + '）')
     } finally { setBusy(false) }
   }
+  const saveRoomInfo = (info: { roomCode: string; myName: string; myColor: string; host: string; wsUrl: string; lanIp: string; shareUrl: string }) => {
+    localStorage.setItem('yicode_collab_room', JSON.stringify(info))
+  }
   const enterCreated = () => {
     if (!created) return
     const n = name.trim()
     const color = pickColor(n, [])
+    const wsUrl = created.ws_url || (WS_BASE + '/ws/room/' + created.room_code)
     setMyName(n); setMyColor(color); setMyRole('writer')
     setRoomCode(created.room_code); setLanIp(created.lan_ip); setShareUrl(created.share_url); setHost(n)
     setView('room')
-    connectRoom(created.ws_url || (WS_BASE + '/ws/room/' + created.room_code), n, color, n)
+    saveRoomInfo({ roomCode: created.room_code, myName: n, myColor: color, host: n, wsUrl, lanIp: created.lan_ip, shareUrl: created.share_url })
+    connectRoom(wsUrl, n, color, n)
   }
   const joinRoom = async () => {
     const n = name.trim()
@@ -2110,11 +2171,13 @@ function CollabChannel() {
       const d = await r.json()
       const list = (d.members || []) as CollabMember[]
       const color = pickColor(n, list)
-      setMyName(n); setMyColor(color); setMyRole('writer')
+      const wsUrl = WS_BASE + '/ws/room/' + c
+      setMyName(n); setMyColor(color); setMyRole('obs')
       setRoomCode(c); setLanIp(d.lan_ip || ''); setShareUrl(d.share_url || ('http://' + (d.lan_ip || '127.0.0.1') + ':1420/?room=' + c)); setHost(d.host || '')
       setMembers(list)
       setView('room')
-      connectRoom(WS_BASE + '/ws/room/' + c, n, color, d.host || '')
+      saveRoomInfo({ roomCode: c, myName: n, myColor: color, host: d.host || '', wsUrl, lanIp: d.lan_ip || '', shareUrl: d.share_url || '' })
+      connectRoom(wsUrl, n, color, d.host || '')
     } catch (e) {
       setErr('加入失败：' + (e as Error).message)
     } finally { setBusy(false) }
@@ -2125,8 +2188,6 @@ function CollabChannel() {
       navigator.clipboard.writeText(text).then(() => { setCopied(key); setTimeout(() => setCopied(''), 1500) })
     } catch { /* ignore */ }
   }
-  const lineCount = code.split('\n').length
-
   // ===== 入口界面 =====
   if (view === 'entry') {
     return (
@@ -2237,6 +2298,30 @@ function CollabChannel() {
           </div>
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>在线 {members.length} 人</span>
         </div>
+        {/* 写权限申请通知 - 仅房主可见 */}
+        {myName === host && writeRequests.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8 }}>
+            <i className="fas fa-bell" style={{ color: '#f59e0b' }}></i>
+            <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600 }}>写权限申请：</span>
+            {writeRequests.map(name => (
+              <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>{name}</span>
+                <button className="btn" style={{ padding: '2px 6px', fontSize: 10, background: 'rgba(16,185,129,0.2)', color: '#10b981', border: '1px solid rgba(16,185,129,0.4)' }} onClick={() => approveWrite(name, true)}>
+                  <i className="fas fa-check"></i>
+                </button>
+                <button className="btn" style={{ padding: '2px 6px', fontSize: 10, background: 'rgba(239,68,68,0.2)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.4)' }} onClick={() => approveWrite(name, false)}>
+                  <i className="fas fa-times"></i>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* 申请写权限按钮 - 仅观察者可见 */}
+        {myName !== host && myRole === 'obs' && (
+          <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: 12 }} onClick={requestWrite} disabled={writeRequested}>
+            <i className={writeRequested ? 'fas fa-hourglass-half' : 'fas fa-pen'}></i> {writeRequested ? '已申请，等待审批' : '申请写权限'}
+          </button>
+        )}
         <button className="btn btn-outline" style={{ color: '#fca5a5', borderColor: 'rgba(239,68,68,0.4)' }} onClick={() => leaveRoom()}>
           <i className="fas fa-sign-out-alt"></i> 退出房间
         </button>
@@ -2267,12 +2352,17 @@ function CollabChannel() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
                     <span className={`role-badge role-${r}`}>{COLLAB_ROLE_LABEL[r]}</span>
-                    {isMe && (
+                    {isMe && m.name === host && (
                       <select value={myRole} onChange={e => onRoleChange(e.target.value as CollabRole)} style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 6px' }}>
                         <option value="writer">写代码</option>
                         <option value="reviewer">评代码</option>
                         <option value="obs">观看中</option>
                       </select>
+                    )}
+                    {myName === host && !isMe && r === 'writer' && (
+                      <button className="btn" style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: 10, background: 'rgba(239,68,68,0.15)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.3)' }} onClick={() => approveWrite(m.name, false)} title="收回写权限">
+                        <i className="fas fa-ban" style={{ marginRight: 3 }}></i>收回
+                      </button>
                     )}
                   </div>
                 </div>
@@ -2292,36 +2382,38 @@ function CollabChannel() {
                 <strong style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <i className="fas fa-file-code" style={{ color: 'var(--primary-light)' }}></i> 共享代码
                 </strong>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', padding: '3px 8px', background: 'var(--bg-main)', borderRadius: 5, border: '1px solid var(--border)' }}>
-                  <i className="fas fa-share-alt" style={{ marginRight: 4 }}></i>实时同步中
-                </span>
-                <select value={lang} onChange={e => onLangChange(e.target.value as LangKey)} style={{ fontSize: 12, padding: '4px 8px' }}>
+                {myRole === 'writer' ? (
+                  <span style={{ fontSize: 11, color: 'var(--success)', padding: '3px 8px', background: 'rgba(16,185,129,0.1)', borderRadius: 5, border: '1px solid rgba(16,185,129,0.3)' }}>
+                    <i className="fas fa-pen" style={{ marginRight: 4 }}></i>{myName === host ? '房主可编辑' : '可编辑'}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', padding: '3px 8px', background: 'var(--bg-main)', borderRadius: 5, border: '1px solid var(--border)' }}>
+                    <i className="fas fa-eye" style={{ marginRight: 4 }}></i>观察模式 - 可在聊天中发表建议
+                  </span>
+                )}
+                <select value={lang} onChange={e => onLangChange(e.target.value as LangKey)} style={{ fontSize: 12, padding: '4px 8px' }} disabled={myRole !== 'writer'}>
                   {COLLAB_LANGS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}
                 </select>
-                <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => { setCode(CODE_TEMPLATES[lang]); scheduleSync(CODE_TEMPLATES[lang], lang) }}>
-                  <i className="fas fa-undo"></i> 重置
-                </button>
+                {myRole === 'writer' && (
+                  <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => { setCode(CODE_TEMPLATES[lang]); scheduleSync(CODE_TEMPLATES[lang], lang) }}>
+                    <i className="fas fa-undo"></i> 重置
+                  </button>
+                )}
               </div>
             </div>
             <div className="code-editor-area">
-              <div className="code-lines-container">
-                <div className="line-numbers">
-                  {Array.from({ length: lineCount }, (_, i) => (
-                    <div key={i} style={{ height: '22.95px' }}>{i + 1}</div>
-                  ))}
-                </div>
-                <textarea
-                  className="code-textarea"
-                  value={code}
-                  onChange={e => {
-                    const v = e.target.value
-                    setCode(v)
-                    scheduleSync(v, lang)
-                  }}
-                  spellCheck={false}
-                  placeholder="在此输入代码，将实时广播给所有成员..."
-                />
-              </div>
+              <MonacoCodeEditor
+                value={code}
+                onChange={(value) => {
+                  if (myRole !== 'writer') return
+                  setCode(value)
+                  scheduleSync(value, lang)
+                }}
+                language={lang}
+                theme={localStorage.getItem('yicode_theme') !== 'light' ? 'vs-dark' : 'light'}
+                readOnly={myRole !== 'writer'}
+                height="100%"
+              />
             </div>
           </div>
         </div>
@@ -2368,7 +2460,6 @@ function LearnCenter({ setPage, onOpenExercise, searchQuery }: {
   onOpenExercise: (ex: Exercise) => void
   searchQuery: string
 }) {
-  const API_BASE = 'http://localhost:8000'
   const [courses, setCourses] = useState<Array<{
     id: number; title: string; language: string; difficulty: string;
     icon: string; color: string; instructor: string; student_count: number;
@@ -2686,7 +2777,6 @@ function LearnCenter({ setPage, onOpenExercise, searchQuery }: {
 
 // ============== 学习中心 ==============
 function ClassroomView({ setPage }: { setPage: (p: PageKey) => void }) {
-  const API_BASE = 'http://localhost:8000'
   const [courses, setCourses] = useState<Array<{
     id: number; title: string; description: string; language: string; difficulty: string;
     category: string; icon: string; color: string; instructor: string; student_count: number;
@@ -3131,7 +3221,7 @@ function EnvCheck() {
   const fetchRuntimes = async () => {
     setLoading(true)
     try {
-      const r = await fetch('http://localhost:8000/runtimes')
+      const r = await fetch(API_BASE + '/runtimes')
       const j = await r.json()
       setRuntimes(j.runtimes || j.details || {})
     } catch {
@@ -3146,7 +3236,7 @@ function EnvCheck() {
     setTesting(true)
     setSelfTest(null)
     try {
-      const r = await fetch('http://localhost:8000/self-test', { method: 'POST' })
+      const r = await fetch(API_BASE + '/self-test', { method: 'POST' })
       const j = await r.json()
       setSelfTest(j.per_language || {})
     } catch {
@@ -3167,13 +3257,13 @@ function EnvCheck() {
     setInstallStatus(prev => ({ ...prev, [env]: { status: 'installing', progress: '开始下载...' } }))
 
     try {
-      const r = await fetch(`http://localhost:8000/install/${env}`, { method: 'POST' })
+      const r = await fetch(`API_BASE/install/${env}`, { method: 'POST' })
       const data = await r.json()
       if (data.task_id) {
         // 轮询安装状态
         const poll = async () => {
           try {
-            const sr = await fetch(`http://localhost:8000/install/status/${data.task_id}`)
+            const sr = await fetch(`API_BASE/install/status/${data.task_id}`)
             const sd = await sr.json()
             setInstallStatus(prev => ({ ...prev, [env]: { status: sd.status, progress: sd.progress || sd.status } }))
 
@@ -3403,8 +3493,6 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionLoading, setActionLoading] = useState<number | null>(null)
-
-  const API_BASE = 'http://localhost:8000'
 
   const fetchUsers = async () => {
     setLoading(true)

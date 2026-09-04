@@ -26,6 +26,7 @@ export default defineConfig({
     },
   ],
   server: {
+    host: '0.0.0.0',  // 监听所有网络接口，允许局域网访问
     port: 1420,
     strictPort: true,
   },

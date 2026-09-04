@@ -48,6 +48,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# WebSocket 允许跨域
+@app.middleware("http")
+async def add_websocket_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
 # ============ 全局对象 ============
 runtime = MultiLangRuntime()
 local_ai: AIProvider = LocalAIProvider()
@@ -1034,12 +1043,16 @@ async def get_room(code: str):
         raise HTTPException(404, f"房间 {code} 不存在或已关闭")
     room = collab_rooms[code]
     members = list(room.get("members", {}).values())
+    lan_ip = _get_lan_ip()
     return {
         "room_code": code,
         "host": room["host"],
         "language": room.get("language", "py"),
         "member_count": len(collab_connections.get(code, {})),
         "members": members,
+        "lan_ip": lan_ip,
+        "ws_url": f"ws://{lan_ip}:8000/ws/room/{code}",
+        "share_url": f"http://{lan_ip}:1420/?room={code}",
         "created_at": room["created_at"],
     }
 
@@ -1080,11 +1093,16 @@ async def list_rooms():
 @app.websocket("/ws/room/{code}")
 async def room_websocket(websocket: WebSocket, code: str):
     """协作房间 WebSocket：处理加入/代码同步/聊天/光标/离开"""
+    print(f"[WebSocket] 新连接请求: 房间 {code}, 客户端: {websocket.client}")
+    print(f"[WebSocket] 当前活跃房间: {list(collab_rooms.keys())}")
+    
     if code not in collab_rooms:
+        print(f"[WebSocket] 房间 {code} 不存在，关闭连接")
         await websocket.close(code=4004, reason="房间不存在或已关闭")
         return
 
     await websocket.accept()
+    print(f"[WebSocket] 房间 {code} 连接已接受")
     room = collab_rooms[code]
 
     # 等待第一条 join 消息获取用户名
@@ -1217,6 +1235,38 @@ async def room_websocket(websocket: WebSocket, code: str):
                     except Exception:
                         pass
 
+            elif msg_type == "write_request":
+                # 成员申请写权限 - 通知房主
+                for ws, name in list(collab_connections[code].items()):
+                    if name == room.get("host"):
+                        try:
+                            await ws.send_json({
+                                "type": "write_request",
+                                "from": user_name,
+                            })
+                        except Exception:
+                            pass
+
+            elif msg_type == "write_approve":
+                # 房主审批写权限
+                target = msg.get("target", "")
+                approved = msg.get("approved", False)
+                if user_name == room.get("host") and target in room.get("members", {}):
+                    new_role = "writer" if approved else "obs"
+                    room["members"][target]["role"] = new_role
+                    member_list = list(room["members"].values())
+                    # 通知所有人角色变更
+                    for ws, _ in list(collab_connections[code].items()):
+                        try:
+                            await ws.send_json({
+                                "type": "role_changed",
+                                "members": member_list,
+                                "approved": approved,
+                                "target": target,
+                            })
+                        except Exception:
+                            pass
+
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -1225,27 +1275,34 @@ async def room_websocket(websocket: WebSocket, code: str):
         # 成员离开清理
         if code in collab_connections and websocket in collab_connections[code]:
             del collab_connections[code][websocket]
-        if code in collab_rooms and user_name in room.get("members", {}):
+        # 检查该用户是否还有其他活跃连接（刷新页面时新连接已建立，旧连接断开不应移除成员）
+        has_other_connection = any(
+            n == user_name for ws2, n in collab_connections.get(code, {}).items()
+        )
+        if code in collab_rooms and user_name in room.get("members", {}) and not has_other_connection:
             del room["members"][user_name]
         member_list = list(room.get("members", {}).values()) if code in collab_rooms else []
-        # 广播成员离开
-        for ws, _ in list(collab_connections.get(code, {}).items()):
-            try:
-                await ws.send_json({
-                    "type": "member_left",
-                    "name": user_name,
-                    "members": member_list,
-                })
-            except Exception:
-                pass
-        # 如果房间空了，5 分钟后自动清理
+        # 广播成员离开（仅当用户真正离开时）
+        if not has_other_connection:
+            for ws, _ in list(collab_connections.get(code, {}).items()):
+                try:
+                    await ws.send_json({
+                        "type": "member_left",
+                        "name": user_name,
+                        "members": member_list,
+                    })
+                except Exception:
+                    pass
+        # 如果房间空了，延迟销毁（宽限期30秒，允许刷新页面的用户重连）
         if code in collab_rooms and not collab_connections.get(code):
-            async def _cleanup():
-                await asyncio.sleep(300)
-                if code in collab_rooms and not collab_connections.get(code):
-                    collab_rooms.pop(code, None)
-                    collab_connections.pop(code, None)
-            asyncio.create_task(_cleanup())
+            async def _delayed_destroy(room_code: str):
+                await asyncio.sleep(30)
+                if room_code in collab_rooms and not collab_connections.get(room_code):
+                    print(f"[WS Room {room_code}] 宽限期结束，房间销毁")
+                    collab_rooms.pop(room_code, None)
+                    collab_connections.pop(room_code, None)
+            print(f"[WS Room {code}] 所有成员已离开，30秒宽限期开始")
+            asyncio.create_task(_delayed_destroy(code))
 
 
 # ============ 启动入口 ============
