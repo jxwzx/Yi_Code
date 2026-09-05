@@ -3,7 +3,6 @@ import './App.css'
 import { MonacoCodeEditor } from './MonacoEditor'
 import { API_BASE, WS_BASE } from './api'
 import { EnvCheck } from './EnvCheck'
-import logoImg from './Yi_Code.png'
 import { AdminPanel } from './AdminPanel'
 import { FlowchartView } from './FlowchartView'
 import { simulateRun, buildLocalAIReply } from './aiHelpers'
@@ -68,62 +67,52 @@ interface ChatMessage {
 
 // ============== 代码模板 ==============
 const CODE_TEMPLATES: Record<LangKey, string> = {
-  py: [
-    '# Python 代码编辑器',
-    '# 在此编写你的代码',
-    '',
-    '',
-  ].join('\n'),
-  js: [
-    '// JavaScript 代码编辑器',
-    '// 在此编写你的代码',
-    '',
-    '',
-  ].join('\n'),
-  cpp: [
-    '// C++ 代码编辑器',
-    '#include <iostream>',
-    'using namespace std;',
-    '',
-    'int main() {',
-    '    // 在此编写你的代码',
-    '',
-    '    return 0;',
-    '}',
-  ].join('\n'),
-  java: [
-    '// Java 代码编辑器',
-    'public class Main {',
-    '    public static void main(String[] args) {',
-    '        // 在此编写你的代码',
-    '',
-    '    }',
-    '}',
-  ].join('\n'),
-  go: [
-    '// Go 代码编辑器',
-    'package main',
-    '',
-    'import "fmt"',
-    '',
-    'func main() {',
-    '    // 在此编写你的代码',
-    '',
-    '}',
-  ].join('\n'),
-  cs: [
-    '// C# 代码编辑器',
-    'using System;',
-    '',
-    'class Program',
-    '{',
-    '    static void Main()',
-    '    {',
-    '        // 在此编写你的代码',
-    '',
-    '    }',
-    '}',
-  ].join('\n'),
+  py: `# Python 代码编辑器
+# 在此编写你的代码
+
+
+`,
+  js: `// JavaScript 代码编辑器
+// 在此编写你的代码
+
+
+`,
+  cpp: `// C++ 代码编辑器
+#include <iostream>
+using namespace std;
+
+int main() {
+    // 在此编写你的代码
+
+    return 0;
+}`,
+  java: `// Java 代码编辑器
+public class Main {
+    public static void main(String[] args) {
+        // 在此编写你的代码
+
+    }
+}`,
+  go: `// Go 代码编辑器
+package main
+
+import "fmt"
+
+func main() {
+    // 在此编写你的代码
+
+}`,
+  cs: `// C# 代码编辑器
+using System;
+
+class Program
+{
+    static void Main()
+    {
+        // 在此编写你的代码
+
+    }
+}`
 }
 
 // ============== 主组件 ==============
@@ -142,8 +131,8 @@ export default function App() {
     } catch { return null }
   })
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
   const [isDarkTheme, setIsDarkTheme] = useState(() => localStorage.getItem('yicode_theme') !== 'light')
+  const [searchQuery, setSearchQuery] = useState('')
 
   const toggleTheme = () => {
     const newTheme = isDarkTheme ? 'light' : 'dark'
@@ -212,7 +201,7 @@ export default function App() {
         />
         <div className="content-area">
           {page === 'dashboard' && <Dashboard setPage={setPagePersist} userId={currentUser.user_id} />}
-          {page === 'editor' && <CodeEditor onRunStatus={setRunStatus} exercise={selectedExercise} onClearExercise={() => { setSelectedExercise(null); localStorage.removeItem('yicode_exercise_id') }} userId={currentUser.user_id} isDarkTheme={isDarkTheme} />}
+          {page === 'editor' && <CodeEditor onRunStatus={setRunStatus} exercise={selectedExercise} onClearExercise={() => { setSelectedExercise(null); localStorage.removeItem('yicode_exercise_id') }} userId={currentUser.user_id} />}
           {page === 'ai' && <AIPanel standalone />}
           {page === 'flowchart' && <FlowchartView />}
           {/* 协作频道始终保持挂载，避免切换选项卡时 WebSocket 断开 */}
@@ -237,128 +226,6 @@ function LoginPage({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const meteorCanvasRef = useRef<HTMLCanvasElement | null>(null)
-
-  // 流星雨动画
-  useEffect(() => {
-    const canvas = meteorCanvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    let raf = 0
-    let W = 0, H = 0
-    const DPR = Math.min(window.devicePixelRatio || 1, 2)
-
-    const resize = () => {
-      W = window.innerWidth
-      H = window.innerHeight
-      canvas.width = W * DPR
-      canvas.height = H * DPR
-      canvas.style.width = W + 'px'
-      canvas.style.height = H + 'px'
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
-    }
-    resize()
-    window.addEventListener('resize', resize)
-
-    interface Meteor { x: number; y: number; len: number; speed: number; angle: number; hue: number; life: number; maxLife: number }
-    const meteors: Meteor[] = []
-
-    const spawnMeteor = (): Meteor => {
-      const angle = Math.PI * (0.75 + Math.random() * 0.15) // 向左下飞
-      const maxLife = 60 + Math.random() * 40
-      return {
-        x: W * (0.3 + Math.random() * 0.9),
-        y: -20 - Math.random() * H * 0.3,
-        len: 80 + Math.random() * 160,
-        speed: 6 + Math.random() * 8,
-        angle,
-        hue: [230, 260, 320, 170][Math.floor(Math.random() * 4)],
-        life: 0,
-        maxLife,
-      }
-    }
-
-    // 初始随机几颗
-    for (let i = 0; i < 3; i++) {
-      const m = spawnMeteor()
-      m.y = Math.random() * H * 0.5
-      m.life = Math.random() * 30
-      meteors.push(m)
-    }
-
-    let frame = 0
-    const tick = () => {
-      frame++
-      ctx.clearRect(0, 0, W, H)
-
-      // 每隔一段时间生成新流星
-      if (frame % 45 === 0 && meteors.length < 7) meteors.push(spawnMeteor())
-
-      for (let i = meteors.length - 1; i >= 0; i--) {
-        const m = meteors[i]
-        m.x += Math.cos(m.angle) * m.speed
-        m.y += Math.sin(m.angle) * m.speed
-        m.life++
-
-        const alpha = Math.max(0, 1 - m.life / m.maxLife)
-        const dx = Math.cos(m.angle) * m.len
-        const dy = Math.sin(m.angle) * m.len
-
-        // 流星尾巴（渐变线）
-        const grad = ctx.createLinearGradient(m.x, m.y, m.x - dx, m.y - dy)
-        grad.addColorStop(0, `hsla(${m.hue}, 95%, 75%, ${0.9 * alpha})`)
-        grad.addColorStop(0.3, `hsla(${m.hue}, 90%, 65%, ${0.45 * alpha})`)
-        grad.addColorStop(1, `hsla(${m.hue}, 90%, 60%, 0)`)
-        ctx.strokeStyle = grad
-        ctx.lineWidth = 2.2
-        ctx.lineCap = 'round'
-        ctx.beginPath()
-        ctx.moveTo(m.x, m.y)
-        ctx.lineTo(m.x - dx, m.y - dy)
-        ctx.stroke()
-
-        // 流星头部光点
-        ctx.beginPath()
-        ctx.arc(m.x, m.y, 2.2, 0, Math.PI * 2)
-        ctx.fillStyle = `hsla(${m.hue}, 100%, 88%, ${alpha})`
-        ctx.shadowColor = `hsla(${m.hue}, 100%, 75%, ${alpha})`
-        ctx.shadowBlur = 12
-        ctx.fill()
-        ctx.shadowBlur = 0
-
-        if (m.life >= m.maxLife || m.y > H + 200 || m.x < -200) meteors.splice(i, 1)
-      }
-
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('resize', resize)
-    }
-  }, [])
-
-  // 星星与代码符号位置（useMemo 固定，避免重渲染时跳动）
-  const loginStars = useMemo(() => Array.from({ length: 60 }, () => ({
-    left: Math.random() * 100,
-    top: Math.random() * 100,
-    delay: Math.random() * 4,
-    duration: 2 + Math.random() * 3,
-    size: 1 + Math.random() * 2,
-  })), [])
-
-  const loginSymbols = useMemo(() => ['</', '{}', '()', '[]', '/>', '&&', '=>', '++'].map((sym, i) => ({
-    sym,
-    left: 8 + Math.random() * 84,
-    top: 8 + Math.random() * 84,
-    delay: i * 0.8,
-    duration: 6 + Math.random() * 4,
-    size: 14 + Math.random() * 10,
-    opacity: 0.15 + Math.random() * 0.15,
-  })), [])
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -402,79 +269,18 @@ function LoginPage({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
     }
   }
 
-  // 鼠标视差 + 卡片 3D 倾斜：直接写 CSS 变量，避免 React 重渲染
-  const loginPageRef = useRef<HTMLDivElement | null>(null)
-  const loginCardRef = useRef<HTMLDivElement | null>(null)
-
-  const handleParallax = (e: React.MouseEvent<HTMLDivElement>) => {
-    const page = loginPageRef.current
-    if (!page) return
-    const rect = page.getBoundingClientRect()
-    const px = ((e.clientX - rect.left) / rect.width) * 2 - 1   // -1 ~ 1
-    const py = ((e.clientY - rect.top) / rect.height) * 2 - 1
-    page.style.setProperty('--px', px.toFixed(3))
-    page.style.setProperty('--py', py.toFixed(3))
-    const card = loginCardRef.current
-    if (card) {
-      card.style.setProperty('--tilt-x', `${(-py * 5).toFixed(2)}deg`)
-      card.style.setProperty('--tilt-y', `${(px * 6).toFixed(2)}deg`)
-    }
-  }
-
-  const resetParallax = () => {
-    const page = loginPageRef.current
-    page?.style.setProperty('--px', '0')
-    page?.style.setProperty('--py', '0')
-    const card = loginCardRef.current
-    if (card) {
-      card.style.setProperty('--tilt-x', '0deg')
-      card.style.setProperty('--tilt-y', '0deg')
-    }
-  }
-
   return (
-    <div className="login-page" ref={loginPageRef} onMouseMove={handleParallax} onMouseLeave={resetParallax}>
-      {/* 流星 canvas 背景 */}
-      <canvas ref={meteorCanvasRef} className="meteor-canvas" />
-
+    <div className="login-page">
       <div className="login-bg-decoration">
         <div className="bg-blob blob-1"></div>
         <div className="bg-blob blob-2"></div>
         <div className="bg-blob blob-3"></div>
-        {/* 网格线 */}
-        <div className="bg-grid" />
-        {/* 星星 */}
-        <div className="bg-stars">
-          {loginStars.map((s, i) => (
-            <div key={i} className="star" style={{
-              left: `${s.left}%`,
-              top: `${s.top}%`,
-              animationDelay: `${s.delay}s`,
-              animationDuration: `${s.duration}s`,
-              width: `${s.size}px`,
-              height: `${s.size}px`,
-            }} />
-          ))}
-        </div>
-        {/* 浮动代码符号 */}
-        <div className="bg-code-symbols">
-          {loginSymbols.map((s, i) => (
-            <div key={i} className="code-symbol" style={{
-              left: `${s.left}%`,
-              top: `${s.top}%`,
-              animationDelay: `${s.delay}s`,
-              animationDuration: `${s.duration}s`,
-              fontSize: `${s.size}px`,
-              opacity: s.opacity,
-            }}>{s.sym}</div>
-          ))}
-        </div>
       </div>
 
-      <div className="login-card" ref={loginCardRef}>
+      <div className="login-card">
         <div className="login-header">
           <div className="login-logo">
-            <img src={logoImg} alt="YiCode" />
+            <i className="fas fa-infinity"></i>
           </div>
           <h1>YiCode 易码</h1>
           <p>AI 驱动的编程学习平台 · 面向初学者与大学生</p>
@@ -577,7 +383,7 @@ function Sidebar({ page, setPage, user, onLogout }: {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        <img src={logoImg} alt="YiCode" className="logo-icon" />
+        <div className="logo-icon"><i className="fas fa-infinity"></i></div>
         <div className="logo-text">
           <h1>YiCode 易码</h1>
           <p>AI 驱动编程学习平台</p>
@@ -1077,13 +883,13 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
 }
 
 // ============== 代码编辑器 ==============
-function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId, isDarkTheme }: {
+function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId }: {
   onRunStatus: (s: { id: string; logFile: string } | null) => void
   exercise: Exercise | null
   onClearExercise: () => void
   userId: number
-  isDarkTheme: boolean
 }) {
+  const isDarkTheme = localStorage.getItem('yicode_theme') !== 'light'
   const [lang, setLang] = useState<LangKey>('py')
   const [code, setCode] = useState<string>(CODE_TEMPLATES.py)
   const [outputTab, setOutputTab] = useState<'result' | 'error' | 'debug'>('result')
@@ -1711,6 +1517,8 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
   const [copied, setCopied] = useState('')
   const [writeRequests, setWriteRequests] = useState<string[]>([]) // 申请写权限的用户名列表
   const [writeRequested, setWriteRequested] = useState(false) // 当前用户是否已申请
+  const [running, setRunning] = useState(false)
+  const [output, setOutput] = useState<Array<{ type: string; text: string }>>([])
 
   const wsRef = useRef<WebSocket | null>(null)
   const syncTimer = useRef<number | null>(null)
@@ -1778,6 +1586,37 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
     }])
     setChatInput('')
   }
+  const runCode = async () => {
+    setRunning(true)
+    setOutput([{ type: 'meta', text: `[YiCode] 正在启动 ${COLLAB_LANGS.find(l => l.key === lang)?.label || lang} 运行环境...` }])
+    const startTime = Date.now()
+    try {
+      const resp = await fetch(API_BASE + '/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language: lang, code })
+      })
+      if (resp.ok) {
+        const data = await resp.json()
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+        const outLines: Array<{ type: string; text: string }> = [
+          { type: 'meta', text: `[YiCode] ${data.language || lang} · 耗时 ${data.elapsed_seconds || elapsed}s · 退出码 ${data.exit_code}` },
+        ]
+        if (data.stdout) outLines.push({ type: 'success', text: data.stdout })
+        if (data.stderr) outLines.push({ type: 'error', text: data.stderr })
+        if (!data.stdout && !data.stderr) outLines.push({ type: 'warn', text: '（程序无输出，请检查是否包含 print/console.log/cout 等输出语句）' })
+        if (data.error) outLines.push({ type: 'error', text: data.error })
+        setOutput(prev => [...prev, ...outLines])
+        setRunning(false)
+        return
+      }
+    } catch { /* 后端离线 */ }
+    await new Promise(r => setTimeout(r, 800))
+    const results = simulateRun(lang, code)
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+    setOutput(prev => [...prev, { type: 'meta', text: `[本地模拟] ${lang} · 耗时 ${elapsed}s` }, ...results.map(r => ({ type: r.type, text: r.text }))])
+    setRunning(false)
+  }
   const leaveRoom = (reason?: string, clearStorage = true) => {
     if (syncTimer.current) { clearTimeout(syncTimer.current); syncTimer.current = null }
     const ws = wsRef.current
@@ -1790,6 +1629,7 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
     setChatMessages([]); setChatInput('')
     setCreated(null); setJoinCode('')
     setWriteRequests([]); setWriteRequested(false)
+    setRunning(false); setOutput([])
     setErr(reason || '')
   }
   // WebSocket 生命周期：挂载时检查 localStorage 自动重连，卸载时不关闭 WS（刷新时让浏览器自然处理）
@@ -2168,6 +2008,15 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
                     <i className="fas fa-undo"></i> 重置
                   </button>
                 )}
+                <div style={{ flex: 1 }} />
+                <button
+                  className={`btn ${running ? 'btn-secondary' : 'btn-success'}`}
+                  style={{ padding: '4px 14px', fontSize: 12 }}
+                  onClick={runCode}
+                  disabled={running}
+                >
+                  <i className={`fas ${running ? 'fa-spinner fa-spin' : 'fa-play'}`}></i> {running ? '执行中...' : '运行代码'}
+                </button>
               </div>
             </div>
             <div className="code-editor-area">
@@ -2179,11 +2028,18 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
                   scheduleSync(value, lang)
                 }}
                 language={lang}
-                theme={isDarkTheme !== false ? 'vs-dark' : 'light'}
+                theme={isDarkTheme ? 'vs-dark' : 'light'}
                 readOnly={myRole !== 'writer'}
                 height="100%"
               />
             </div>
+            {output.length > 0 && (
+              <div style={{ flex: '0 0 auto', maxHeight: 180, overflow: 'auto', background: 'var(--bg-main)', borderTop: '1px solid var(--border)', padding: '8px 12px', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, lineHeight: 1.7 }}>
+                {output.map((o, i) => (
+                  <div key={i} style={{ color: o.type === 'error' ? '#ef4444' : o.type === 'success' ? 'var(--text-primary)' : o.type === 'warn' ? '#f59e0b' : 'var(--text-muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{o.text}</div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

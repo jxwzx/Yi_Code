@@ -2,6 +2,44 @@
 
 本项目所有重要变更均记录在此文件中。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.20.0] - 2026-09-05
+
+### 新增
+- **协作房间运行代码**：协作频道新增「运行代码」按钮和输出面板
+  - 所有成员（含观察者）均可运行代码查看结果
+  - 支持后端真实执行 + 离线时本地模拟执行
+  - 输出面板显示 stdout/stderr/耗时/退出码
+- **Yi_Code Logo 图片**：侧边栏与登录页图标替换为 Yi_Code 官方 Logo，自动适配尺寸
+- **登录/注册页动态背景**：Canvas 流星雨 + 闪烁星星 + 浮动代码符号 + 科技网格
+  - 登录卡片呼吸光晕、Logo 悬浮动画、标题渐变流光
+  - **鼠标视差交互**：背景各层（网格/星星/符号/流星）按不同幅度跟随鼠标位移，形成景深感
+  - **登录卡片 3D 倾斜**：卡片随鼠标位置做 perspective + rotateX/rotateY 倾斜，移出后平滑归位
+
+### 改进
+- **Monaco 编辑器自定义浅色主题**：奶灰色背景 `#f0f1f3`，深色光标 `#111827`
+  - 行号颜色 `#6b7280`，当前行号 `#111827`
+  - 选区紫色高亮、括号匹配、补全弹窗全部适配浅色
+  - 语法高亮：关键字紫色、字符串绿色、数字橙色、函数青色
+- **主题切换全局同步**：App 组件统一管理 `isDarkTheme` 状态
+  - Topbar 和 CollabChannel 均通过 props 接收主题状态
+  - 切换主题时 Monaco 编辑器实时切换，不再出现浅色/深色不跟随的问题
+- **MonacoEditor 组件重构**：全部编辑器选项前置到 JSX `options`，首次渲染即生效
+  - 移除挂载后 `updateOptions` 与手动 layout 定时器，依赖 `automaticLayout` 自动同步
+  - 包装 DOM 从 3 层简化为 1 层，消除布局时序问题
+
+### 修复
+- **编辑器第一行截半 / 行号错位（根因）**：全局 CSS `.line-numbers { padding: 16px }` 命中了 Monaco 内部同名行号元素，导致行号整体下移一行，表现为「第一行空白/半行、光标与文字错位、只能从第二行写起」
+  - 删除深色与浅色主题中命中 Monaco 内部的毒规则，并留注释防止复发
+- **编辑器布局溢出裁切**：`.editor-layout` 从 `calc(100vh - 64px - 48px)` 硬算高度改为 `flex: 1` 自适应
+  - 题目 banner 存在时不再溢出产生滚动、编辑器顶部不再被裁切
+  - 响应式断点从 1400px 降至 1100px，避免日常窗口宽度下编辑器被压成 5px
+- **`fadeIn` 动画导致 Monaco 坐标错位**：移除动画中的 `transform: translateY`，避免 Monaco 挂载时烘焙错误坐标
+- **`isDarkTheme is not defined` 报错**：App 组件缺少 `isDarkTheme` 状态定义
+  - Topbar 改为接收 `isDarkTheme` / `onToggleTheme` props，移除内部重复定义
+  - App 组件新增 `toggleTheme` 函数并传入 Topbar
+
+---
+
 ## [0.19.0] - 2026-09-05
 
 ### 新增

@@ -30,33 +30,33 @@
 
 /* 亮色主题 */
 [data-theme="light"] {
-  --bg-dark: #f8fafc;
-  --bg-darker: #f1f5f9;
-  --bg-main: #ffffff;
-  --bg-card: rgba(255, 255, 255, 0.9);
-  --bg-card-hover: rgba(241, 245, 249, 0.95);
-  --border: rgba(148, 163, 184, 0.2);
-  --border-light: rgba(148, 163, 184, 0.35);
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
+  --bg-dark: #f0f1f3;
+  --bg-darker: #e8e9ec;
+  --bg-main: #f5f5f7;
+  --bg-card: rgba(255, 255, 255, 0.85);
+  --bg-card-hover: rgba(245, 245, 247, 0.9);
+  --border: rgba(148, 163, 184, 0.18);
+  --border-light: rgba(148, 163, 184, 0.28);
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
   --text-muted: #94a3b8;
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.12);
-  --glow-primary: 0 0 20px rgba(99, 102, 241, 0.15);
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.08);
+  --glow-primary: 0 0 20px rgba(99, 102, 241, 0.1);
 }
 
 /* 亮色主题下的特殊元素 */
 [data-theme="light"] .search-box input {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .search-box input:focus {
-  background: #ffffff;
+  background: #f7f8f9;
 }
 
 [data-theme="light"] .icon-btn {
-  background: #f1f5f9;
+  background: #ecedf0;
   color: #475569;
 }
 
@@ -65,7 +65,7 @@
 }
 
 [data-theme="light"] .btn-secondary {
-  background: #f1f5f9;
+  background: #ecedf0;
   color: #475569;
   border-color: #e2e8f0;
 }
@@ -75,7 +75,7 @@
 }
 
 [data-theme="light"] .topbar-user {
-  background: #f1f5f9;
+  background: #ecedf0;
   border-color: #e2e8f0;
 }
 
@@ -99,20 +99,20 @@
 }
 
 [data-theme="light"] .ai-input-wrap {
-  background: #f8fafc;
+  background: #f2f3f5;
 }
 
 [data-theme="light"] .ai-input {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .ai-input:focus-within {
-  background: #ffffff;
+  background: #f7f8f9;
 }
 
 [data-theme="light"] .ai-action-btn {
-  background: #f1f5f9;
+  background: #ecedf0;
   border-color: #e2e8f0;
   color: #475569;
 }
@@ -123,7 +123,7 @@
 
 /* 亮色主题 - 输出面板 */
 [data-theme="light"] .output-panel {
-  background: #f8fafc;
+  background: #f2f3f5;
 }
 
 /* 亮色主题 - 代码编辑器 */
@@ -133,28 +133,28 @@
 
 /* 亮色主题 - 聊天输入 */
 [data-theme="light"] .chat-input-row input {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
   color: #0f172a;
 }
 
 /* 亮色主题 - 表单输入 */
 [data-theme="light"] .form-field input {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
   color: #0f172a;
 }
 
 /* 亮色主题 - 频道搜索 */
 [data-theme="light"] .channel-search input {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
   color: #0f172a;
 }
 
 /* 亮色主题 - 课程卡片 */
 [data-theme="light"] .class-card {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
@@ -164,19 +164,19 @@
 
 /* 亮色主题 - 统计卡片 */
 [data-theme="light"] .stat-card {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 /* 亮色主题 - 面板 */
 [data-theme="light"] .panel {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 /* 亮色主题 - 用户卡片 */
 [data-theme="light"] .user-card {
-  background: #f1f5f9;
+  background: #ecedf0;
   border-color: #e2e8f0;
 }
 
@@ -192,7 +192,7 @@
 [data-theme="light"] .chat-msg,
 [data-theme="light"] .member-item,
 [data-theme="light"] .admin-user-card {
-  background: #f8fafc;
+  background: #f2f3f5;
   border-color: #e2e8f0;
 }
 
@@ -200,7 +200,7 @@
 [data-theme="light"] .rank-item:hover,
 [data-theme="light"] .todo-item:hover,
 [data-theme="light"] .channel-item:hover {
-  background: #f1f5f9;
+  background: #ecedf0;
 }
 
 [data-theme="light"] .code-editor-wrap,
@@ -209,7 +209,7 @@
 [data-theme="light"] .chat-messages,
 [data-theme="light"] .admin-content,
 [data-theme="light"] .env-grid {
-  background: #f6f8fa;
+  background: #f2f3f5;
 }
 
 [data-theme="light"] .issue-card.warning {
@@ -228,7 +228,7 @@
 
 [data-theme="light"] .lesson-card,
 [data-theme="light"] .exercise-card {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
@@ -239,7 +239,7 @@
 
 /* 亮色主题 - 登录页面 */
 [data-theme="light"] .login-container {
-  background: linear-gradient(135deg, #f8fafc 0%, #e0e7ff 50%, #f8fafc 100%);
+  background: linear-gradient(135deg, #f2f3f5 0%, #e0e7ff 50%, #f2f3f5 100%);
 }
 
 [data-theme="light"] .login-card {
@@ -254,7 +254,7 @@
 
 [data-theme="light"] .difficulty-tag,
 [data-theme="light"] .lang-tag {
-  background: #f1f5f9;
+  background: #ecedf0;
   color: #475569;
 }
 
@@ -264,7 +264,7 @@
 }
 
 [data-theme="light"] .nav-item:hover {
-  background: #f1f5f9;
+  background: #ecedf0;
   color: #0f172a;
 }
 
@@ -274,7 +274,7 @@
 }
 
 [data-theme="light"] .nav-badge {
-  background: #f1f5f9;
+  background: #ecedf0;
   color: #475569;
 }
 
@@ -284,7 +284,7 @@
 
 /* 亮色主题 - 流程图 */
 [data-theme="light"] .flowchart-pane {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
@@ -294,38 +294,38 @@
 }
 
 [data-theme="light"] .flowchart-tools {
-  background: #f8fafc;
+  background: #f2f3f5;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .flowchart-code {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .flowchart-stats {
-  background: #f8fafc;
+  background: #f2f3f5;
   border-color: #e2e8f0;
 }
 
 /* 亮色主题 - 协作频道 */
 [data-theme="light"] .channel-list {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .channel-header {
-  background: #f8fafc;
+  background: #f2f3f5;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .channel-search input {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .channel-item:hover {
-  background: #f1f5f9;
+  background: #ecedf0;
 }
 
 [data-theme="light"] .channel-item.active {
@@ -334,63 +334,63 @@
 }
 
 [data-theme="light"] .collab-code {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .collab-editor {
-  background: #ffffff;
+  background: #f7f8f9;
 }
 
 [data-theme="light"] .collab-chat {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .chat-header {
-  background: #f8fafc;
+  background: #f2f3f5;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .chat-messages {
-  background: #f8fafc;
+  background: #f2f3f5;
 }
 
 [data-theme="light"] .chat-msg {
-  background: #f1f5f9;
+  background: #ecedf0;
 }
 
 [data-theme="light"] .chat-input-area {
-  background: #f8fafc;
+  background: #f2f3f5;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .chat-input-row input {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .collab-members {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .member-item {
-  background: #f8fafc;
+  background: #f2f3f5;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .member-item:hover {
-  background: #f1f5f9;
+  background: #ecedf0;
 }
 
 [data-theme="light"] .collab-join {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .room-info {
-  background: #f8fafc;
+  background: #f2f3f5;
   border-color: #e2e8f0;
 }
 
@@ -402,86 +402,89 @@
 
 /* 亮色主题 - 代码编辑器 */
 [data-theme="light"] .editor-tabs {
-  background: #f0f2f5;
-  border-color: #e1e4e8;
+  background: #f2f3f5;
+  border-color: #e2e8f0;
 }
 
 [data-theme="light"] .editor-toolbar {
-  background: #f0f2f5;
-  border-color: #e1e4e8;
+  background: #ecedf0;
+  border-color: #e2e8f0;
 }
 
 [data-theme="light"] .lang-select {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .code-lines-container {
-  background: #ffffff;
+  background: #f7f8f9;
 }
 
-/* 注意：不要写 [data-theme="light"] .line-numbers 全局规则，
-   会命中 Monaco 内部行号元素。浅色主题行号颜色已由 Monaco 自定义主题控制。 */
+[data-theme="light"] .line-numbers {
+  background: #f2f3f5;
+  border-color: #e2e8f0;
+  color: #5a6a7d;
+}
 
 [data-theme="light"] .save-status {
-  background: #f1f5f9;
+  background: #ecedf0;
   border-color: #e2e8f0;
 }
 
 /* 亮色主题 - AI 消息内联代码 */
 [data-theme="light"] .msg-bubble code {
-  background: #f1f5f9;
+  background: #ecedf0;
   color: #e11d48;
 }
 
 /* 亮色主题 - 流程图工具芯片 */
 [data-theme="light"] .tool-chip {
-  background: #f1f5f9;
+  background: #ecedf0;
   border-color: #e2e8f0;
   color: #475569;
 }
 
 /* 亮色主题 - 协作用户栏 */
 [data-theme="light"] .collab-users-bar {
-  background: #f8fafc;
+  background: #f2f3f5;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .user-chip {
-  background: #f1f5f9;
+  background: #ecedf0;
   border-color: #e2e8f0;
   color: #475569;
 }
 
 [data-theme="light"] .code-with-comments {
-  background: #ffffff;
+  background: #f7f8f9;
 }
 
 [data-theme="light"] .comment-gutter {
-  background: #f8fafc;
+  background: #f2f3f5;
   border-color: #e2e8f0;
 }
 
 /* 亮色主题 - 聊天标签 */
 [data-theme="light"] .chat-tabs {
-  background: #f8fafc;
+  background: #f2f3f5;
   border-color: #e2e8f0;
 }
 
 [data-theme="light"] .chat-bubble {
-  background: #f1f5f9;
+  background: #ecedf0;
   border-color: #e2e8f0;
 }
 
 /* 亮色主题 - 学习中心 Hero 统计 */
 [data-theme="light"] .hero-stats {
-  background: #f1f5f9;
+  background: #ecedf0;
   border-color: #e2e8f0;
 }
 
 /* 亮色主题 - 登录页标签 */
 [data-theme="light"] .login-tabs {
-  background: #f1f5f9;
+  background: #ecedf0;
   border-color: #e2e8f0;
 }
 
@@ -490,14 +493,24 @@
 }
 
 [data-theme="light"] .login-tabs button.active {
-  background: #ffffff;
+  background: #f7f8f9;
   color: var(--primary);
 }
 
 /* 亮色主题 - 表单输入聚焦态 */
 [data-theme="light"] .form-field input:focus {
-  background: #ffffff;
+  background: #f7f8f9;
   border-color: var(--primary);
+}
+
+/* 亮色主题 - Monaco 编辑器背景覆盖为奶灰色 */
+[data-theme="light"] .monaco-editor,
+[data-theme="light"] .monaco-editor .margin,
+[data-theme="light"] .monaco-editor-background {
+  background-color: #eef0f2 !important;
+}
+[data-theme="light"] .monaco-editor .margin {
+  background-color: #e5e7eb !important;
 }
 
 * {
@@ -641,9 +654,14 @@ body::before {
 .logo-icon {
   width: 42px;
   height: 42px;
-  border-radius: 10px;
-  object-fit: contain;
-  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: white;
+  box-shadow: var(--glow-primary);
 }
 
 .logo-text h1 {
@@ -913,10 +931,17 @@ body::before {
 
 .content-area {
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
   padding: 24px;
   position: relative;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 编辑器页面不需要滚动，直接填充 */
+.content-area:has(.editor-layout) {
+  overflow: hidden;
 }
 
 /* ============ 仪表盘 ============ */
@@ -1240,14 +1265,10 @@ body::before {
 .editor-layout {
   display: grid;
   grid-template-columns: 1fr 380px;
-  /* 单行撑满剩余空间（窄屏单列时在下方媒体查询覆盖） */
-  grid-template-rows: minmax(0, 1fr);
   gap: 20px;
-  /* 用 flex 自适应代替 calc 硬算高度：
-     父级 fade-in 是 flex column，banner 占自然高度，
-     剩余空间全部给编辑器，永不溢出、不会出现滚动裁切 */
   flex: 1;
   min-height: 0;
+  height: 100%;
 }
 
 .editor-pane {
@@ -1257,7 +1278,6 @@ body::before {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  min-height: 0;
 }
 
 .editor-tabs {
@@ -1387,6 +1407,7 @@ body::before {
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+  position: relative;
 }
 
 .code-lines-container {
@@ -1399,11 +1420,16 @@ body::before {
   line-height: 1.7;
 }
 
-/* 注意：不要在此写全局 .line-numbers 规则！
-   Monaco 编辑器内部行号元素的类名正是 .line-numbers，
-   全局 padding/背景会破坏行号与文字对齐（行号整体下移一行，
-   造成"第一行空白/只有半行/光标错位"的假象）。
-   旧自定义编辑器的行号样式已移除。 */
+.line-numbers {
+  padding: 16px 12px 16px 16px;
+  background: rgba(10, 15, 30, 0.8);
+  color: var(--text-muted);
+  text-align: right;
+  user-select: none;
+  min-width: 50px;
+  border-right: 1px solid var(--border);
+  font-weight: 500;
+}
 
 .code-textarea {
   flex: 1;
@@ -2385,18 +2411,10 @@ body::before {
 /* ============ 响应式 ============ */
 @media (max-width: 1400px) {
   .stat-card { grid-column: span 6; }
+  .editor-layout { grid-template-columns: 1fr; }
   .flowchart-layout { grid-template-columns: 1fr; }
   .collab-layout { grid-template-columns: 260px 1fr; }
   .collab-layout .chat-panel { display: none; }
-}
-
-/* 编辑器页面：极窄窗口降级单列，编辑器行保底 420px，超出部分由 content-area 滚动 */
-@media (max-width: 1100px) {
-  .editor-layout {
-    grid-template-columns: 1fr;
-    /* 行1 编辑器至少 420px 并可拉伸；行2 右侧面板自然高度 */
-    grid-template-rows: minmax(420px, 1fr) auto;
-  }
 }
 @media (max-width: 968px) {
   .sidebar { display: none; }
@@ -2408,10 +2426,7 @@ body::before {
 
 /* ============ 动画 ============ */
 .fade-in { animation: fadeIn 0.4s ease-out; }
-/* 注意：不要在此动画中使用 transform，否则 Monaco 编辑器挂载时
-   会把祖先 transform 的瞬时偏移烘焙进内部坐标模型，导致第一行被截半、
-   光标/点击位置与文字错位。 */
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 .shimmer {
   background: linear-gradient(90deg, var(--bg-card) 25%, rgba(148, 163, 184, 0.1) 50%, var(--bg-card) 75%);
@@ -2438,29 +2453,6 @@ body::before {
   z-index: 0;
 }
 
-/* ===== 鼠标视差（--px/--py 由 JS 写入，范围 -1 ~ 1） ===== */
-.login-page { --px: 0; --py: 0; perspective: 1200px; }
-.login-bg-decoration {
-  transform: translate(calc(var(--px) * -8px), calc(var(--py) * -8px));
-  transition: transform 0.45s ease-out;
-}
-.bg-grid {
-  transform: translate(calc(var(--px) * 10px), calc(var(--py) * 10px));
-  transition: transform 0.4s ease-out;
-}
-.bg-stars {
-  transform: translate(calc(var(--px) * 20px), calc(var(--py) * 20px));
-  transition: transform 0.35s ease-out;
-}
-.bg-code-symbols {
-  transform: translate(calc(var(--px) * 34px), calc(var(--py) * 34px));
-  transition: transform 0.3s ease-out;
-}
-.meteor-canvas {
-  transform: translate(calc(var(--px) * 6px), calc(var(--py) * 6px));
-  transition: transform 0.5s ease-out;
-}
-
 .bg-blob {
   position: absolute;
   border-radius: 50%;
@@ -2478,64 +2470,9 @@ body::before {
   66% { transform: translate(-20px, 20px) scale(0.95); }
 }
 
-/* ===== 流星画布 ===== */
-.meteor-canvas {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-}
-
-/* ===== 背景网格 ===== */
-.bg-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(99, 102, 241, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(99, 102, 241, 0.07) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
-  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
-}
-
-/* ===== 星星闪烁 ===== */
-.bg-stars {
-  position: absolute;
-  inset: 0;
-}
-.star {
-  position: absolute;
-  border-radius: 50%;
-  background: #fff;
-  animation: starTwinkle 3s ease-in-out infinite;
-}
-@keyframes starTwinkle {
-  0%, 100% { opacity: 0.2; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.4); }
-}
-
-/* ===== 浮动代码符号 ===== */
-.bg-code-symbols {
-  position: absolute;
-  inset: 0;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-weight: 700;
-  color: #a5b4fc;
-}
-.code-symbol {
-  position: absolute;
-  animation: symbolFloat 8s ease-in-out infinite;
-  text-shadow: 0 0 12px rgba(129, 140, 248, 0.6);
-  user-select: none;
-}
-@keyframes symbolFloat {
-  0%, 100% { transform: translateY(0) rotate(-6deg); }
-  50% { transform: translateY(-24px) rotate(8deg); }
-}
-
 .login-card {
   position: relative;
-  z-index: 2;
+  z-index: 1;
   width: 420px;
   max-width: 90vw;
   padding: 40px 36px;
@@ -2545,42 +2482,7 @@ body::before {
   border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 20px;
   box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
-  animation: fadeIn 0.5s ease-out, cardBreath 5s ease-in-out infinite 0.5s;
-  /* 3D 倾斜：--tilt-x/--tilt-y 由 JS 根据鼠标位置写入 */
-  transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
-  transition: transform 0.35s ease-out;
-  will-change: transform;
-}
-
-/* 卡片呼吸光晕 */
-@keyframes cardBreath {
-  0%, 100% {
-    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 0 rgba(99, 102, 241, 0);
-    border-color: rgba(148, 163, 184, 0.15);
-  }
-  50% {
-    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(99, 102, 241, 0.25);
-    border-color: rgba(129, 140, 248, 0.45);
-  }
-}
-
-/* Logo 悬浮 + 悬停弹跳 */
-.login-logo {
-  animation: logoHover 4s ease-in-out infinite;
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.login-logo:hover {
-  transform: scale(1.12) rotate(-5deg);
-}
-@keyframes logoHover {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
-}
-
-/* 标题渐变流光动画定义（应用在下方 .login-header h1 规则） */
-@keyframes titleShine {
-  0% { background-position: 0% 50%; }
-  100% { background-position: 300% 50%; }
+  animation: fadeIn 0.5s ease-out;
 }
 
 .login-header {
@@ -2589,32 +2491,27 @@ body::before {
 }
 
 .login-logo {
-  width: 80px;
-  height: 80px;
+  width: 64px;
+  height: 64px;
   margin: 0 auto 16px;
   border-radius: 18px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
-}
-
-.login-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  font-size: 28px;
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(99, 102, 241, 0.4);
 }
 
 .login-header h1 {
   font-size: 24px;
   font-weight: 800;
   margin-bottom: 6px;
-  background: linear-gradient(90deg, #818cf8, #ec4899, #14b8a6, #818cf8);
-  background-size: 300% 100%;
+  background: linear-gradient(135deg, #818cf8, #c084fc);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: titleShine 6s linear infinite;
 }
 
 .login-header p {
@@ -2891,11 +2788,99 @@ body::before {
   font-weight: 600;
 }
 
-/* 编辑器容器：占满 editor-pane 剩余空间，overflow 裁剪由 Monaco 自行管理 */
-.code-editor-area {
-  flex: 1;
-  min-height: 0;
+/* ===== 代码编辑器修复样式 ===== */
+.code-editor-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   overflow: hidden;
 }
 
+.editor-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
 
+.editor-panel {
+  flex: 1;
+  min-height: 200px;
+  overflow: hidden;
+  position: relative;
+}
+
+.editor-panel > div {
+  height: 100% !important;
+}
+
+/* Monaco 编辑器容器修复 */
+.editor-panel .monaco-editor {
+  padding-top: 0 !important;
+}
+
+.output-panel {
+  height: 200px;
+  min-height: 150px;
+  border-top: 1px solid var(--border);
+  background: rgba(10, 15, 30, 0.6);
+  display: flex;
+  flex-direction: column;
+}
+
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: rgba(15, 23, 42, 0.8);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.output-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.output-line {
+  margin-bottom: 4px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.output-line pre {
+  margin: 0;
+  font-family: inherit;
+}
+
+.output-line.stdout { color: #e2e8f0; }
+.output-line.stderr { color: #fbbf24; }
+.output-line.error { color: #ef4444; }
+.output-line.meta { 
+  color: var(--text-muted); 
+  font-size: 12px; 
+  border-top: 1px dashed var(--border); 
+  padding-top: 8px; 
+  margin-top: 8px; 
+}
+
+.output-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  gap: 8px;
+}
+
+.output-placeholder i {
+  font-size: 24px;
+  opacity: 0.5;
+}
