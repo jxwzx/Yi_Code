@@ -5,6 +5,7 @@ MiMo API 兼容 OpenAI 协议，使用 /v1/chat/completions 接口。
 """
 import os
 import json
+import re
 import urllib.request
 import urllib.error
 from typing import Optional, Dict, Any
@@ -123,11 +124,35 @@ class LocalAIProvider(AIProvider):
                 user_msg = m["content"]
                 break
 
-        # 简单的关键词匹配
-        if "解释" in user_msg or "explain" in user_msg.lower():
+        lower = user_msg.lower()
+        normalized = lower.replace(" ", "")
+
+        # 基础概念问答（离线可用的知识点）
+        concepts = [
+            ("for 循环", "for 循环用于按顺序遍历可迭代对象，例如列表、字符串或 range。\n\n基本格式：\nfor i in range(5):\n    print(i)"),
+            ("while 循环", "while 循环在条件为真时重复执行代码块。\n\n基本格式：\nwhile 条件:\n    代码块"),
+            ("if 语句", "if 语句用于根据条件选择执行不同分支，可配合 elif / else 使用。"),
+            ("函数", "函数是封装一段可复用逻辑的代码块，通过 def（Python）或 function（JavaScript）定义，可接收参数并返回值。"),
+            ("变量", "变量用于保存数据，例如数字、字符串、列表或对象；Python 中直接赋值即可，不需要声明类型。"),
+            ("列表", "列表是有序、可修改的集合，使用 [] 创建，例如：items = [1, 2, 3]。"),
+            ("字典", "字典用于保存键值对，使用 {} 创建，例如：user = {'name': 'YiCode'}。"),
+            ("类", "类是面向对象编程的模板，用于创建具有属性和方法的对象，例如：class Dog:。"),
+        ]
+        for keyword, answer in concepts:
+            if keyword.replace(" ", "") in normalized:
+                return f"{answer}\n\n（离线基础解释；如需更深入讲解可配置 MiMo AI）"
+
+        # 代码解释请求
+        if "解释" in user_msg or "讲解" in user_msg or "说明" in user_msg or "explain" in user_msg.lower():
             lines = user_msg.split("\n")
             code_lines = [l for l in lines if l.strip() and not l.startswith("```")]
-            return f"这段代码共 {len(code_lines)} 行。\n\n主要功能：\n- 包含变量定义和逻辑判断\n- 实现了特定的计算或处理流程\n\n（注：离线模式，如需详细解释请配置 MiMo AI）"
+            features = self._code_features("\n".join(code_lines))
+            base = f"这段代码共 {len(code_lines)} 行。\n\n代码分析：\n"
+            if features:
+                base += "\n".join(f"- {f}" for f in features)
+            else:
+                base += "- 包含变量定义、条件判断或函数调用等常见结构"
+            return base + "\n\n（注：离线模式提供基础代码分析，如需详细解释请配置 MiMo AI）"
 
         if "错误" in user_msg or "error" in user_msg.lower():
             if "SyntaxError" in user_msg:
@@ -140,18 +165,44 @@ class LocalAIProvider(AIProvider):
                 return "类型错误：检查操作数的类型是否匹配。"
             elif "IndexError" in user_msg:
                 return "索引越界：检查数组/列表索引是否超出范围。"
-            return "请检查代码逻辑和语法。如需详细诊断，请配置 MiMo AI。"
+            return "请检查代码逻辑和语法，重点确认变量是否定义、括号是否配对、索引是否越界。如需详细诊断，请配置 MiMo AI。"
 
         if "生成" in user_msg or "generate" in user_msg.lower():
-            return f"（离线模式）请描述你需要生成的代码功能。\n\n你的请求：{user_msg[:100]}...\n\n如需 AI 生成代码，请配置 MiMo API。"
+            return f"（离线模式）暂不支持智能代码生成。\n\n已收到请求：{user_msg[:120]}...\n\n可先使用在线 AI 或安装配置有效的 MiMo API Key。"
 
-        return "（离线模式）当前未配置 MiMo AI，只能提供基础回复。请在 .env 文件中设置 MIMO_API_KEY 以启用智能 AI 助教。"
+        return "（离线模式）当前未配置 MiMo AI。\n\n离线可处理：基础概念问答、代码解释、错误诊断、代码检查。\n\n如需更智能的回答，请在 .env 文件中设置 MIMO_API_KEY。"
+
+    @staticmethod
+    def _code_features(code: str) -> list:
+        features = []
+        if re.search(r"^\s*def\s+\w+", code, re.M):
+            features.append("定义了一个或多个函数，用于封装可复用逻辑")
+        if re.search(r"^\s*class\s+\w+", code, re.M):
+            features.append("定义了一个类，包含面向对象的结构")
+        if re.search(r"\bfor\s+\w+\s+in\b", code):
+            features.append("使用 for 循环遍历可迭代对象")
+        if re.search(r"\bwhile\b", code):
+            features.append("使用 while 循环执行条件循环")
+        if re.search(r"\bif\b|\belif\b|\belse\b", code):
+            features.append("包含条件判断，根据条件选择不同执行路径")
+        if re.search(r"return\s+", code):
+            features.append("函数包含 return 返回值语句")
+        if re.search(r"print\s*\(|console\.log|System\.out\.print|fmt\.Print", code):
+            features.append("代码包含输出语句，会向控制台打印结果")
+        return features
 
     def generate_code(self, prompt: str, context: Optional[str] = None) -> str:
         return self.chat([{"role": "user", "content": f"请生成代码：{prompt}"}])
 
     def explain_code(self, code: str) -> str:
-        return self.chat([{"role": "user", "content": f"请解释代码：{code}"}])
+        if not code.strip():
+            return "请先提供需要解释的代码。"
+        lines = [l for l in code.splitlines() if l.strip()]
+        features = self._code_features(code)
+        base = f"这段代码共 {len(lines)} 行。\n\n代码分析：\n"
+        base += "\n".join(f"- {f}" for f in features) if features else "- 主要包含变量赋值与常见代码结构"
+        base += "\n\n（注：离线模式提供基础代码分析，如需逐行详细讲解请配置 MiMo AI）"
+        return base
 
     def diagnose_error(self, error: str, code: Optional[str] = None) -> str:
         return self.chat([{"role": "user", "content": f"错误：{error}"}])

@@ -2,6 +2,110 @@
 
 本项目所有重要变更均记录在此文件中。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.19.0] - 2026-09-05
+
+### 新增
+- Docker 沙箱执行路径：`/run`
+- Docker 沙箱开关：`YICODE_DOCKER_SANDBOX`
+- 六语言容器镜像：`python:3.13`、`node:22`、`gcc:14`、`eclipse-temurin:21`、`golang:1.27`、`mcr.microsoft.com/dotnet/sdk:8.0`
+- Docker mock 测试：`tests/test_docker_sandbox.py`
+
+### 变更
+- Docker CLI 不可用时自动回退本机执行
+- 容器使用 `--rm`、`--network none`、`--security-opt no-new-privileges`
+- 超时后自动 `docker kill`
+- 沙箱由后端所在机器配置决定，访客无需安装运行环境
+- Windows Docker 部署文档更新：`docs/windows-deployment.md`
+
+### 修复
+- JWT 篡改测试偶发误报：改为修改签名首字符
+
+---
+
+## [0.18.0] - 2026-09-05
+
+### 修复
+- 修复 macOS 下 C++ 编译失败：
+  `ld: library 'crt0.o' not found`
+  原因：Apple clang 不支持 `-static`
+- 修复 macOS 下无法识别项目内已安装的 Go / .NET
+  原因：检测代码只查找 Windows 路径
+- 修复 MiMo API Key 无效 / 未配置时 AI 助教不可用
+  原因：在线调用失败后没有回退本地模式
+- 修复 AI 代码检查把 MiMo SSL / API 错误直接显示给用户
+- 修复离线模式只返回“无法处理/请配置 MiMo”占位话术
+- 修复用户输入 `for循环`（无空格）时概念库匹配失败
+- 修复环境检查页“一键安装”URL 错误：
+  `API_BASE` 未正确拼接
+- 修复 Go / C# / .NET 一键安装入口缺失
+
+### 新增
+- Go、.NET、JDK、MinGW 安装脚本支持 Windows / macOS 双端
+- 环境检查页支持 Java、C++、Go、C# 一键安装
+- 离线 AI 支持：
+  - 基础概念问答：for、while、if、函数、变量、列表、字典、类
+  - 代码结构解释：识别函数、类、循环、条件、return、输出语句
+  - 常见错误诊断
+  - 静态代码检查
+
+### 变更
+- 运行环境检测跨平台化：
+  - Windows：`.exe`、MinGW、`-static`
+  - macOS：无后缀二进制、系统 clang、移除 `-static`
+- `.gitignore` 增加 `_tools/dotnet/`，避免大文件上传
+- 环境检查页按 Windows / macOS 显示不同安装提示
+
+---
+
+## [0.17.0] - 2026-09-05
+
+### 修复
+- 前端 6 处局域网模板字符串错误
+- macOS C++ 编译失败：
+  `ld: library 'crt0.o' not found`
+- 管理员接口无权限校验
+- 任意用户通过 `user_id` 越权访问他人数据
+- WebSocket 无认证、用户名/角色可伪造
+- 普通成员可自行同步代码或提升权限
+- AI 助教在 API Key 无效/未配置时不可用
+- AI 离线模式只返回占位话术
+- `for循环` 等无空格写法无法匹配概念库
+- 环境检查页一键安装 URL 未拼接 `API_BASE`
+- 注册弱密码、注册 `row[0]` 崩溃
+- SQLite 每次查询新建连接
+- Token 重启后失效
+- 用户代码可访问网络和任意文件写入（macOS）
+
+### 新增
+- Go / .NET / JDK / MinGW 安装支持双端
+- 环境检查页 Java / C++ / Go / C# 一键安装
+- JWT 登录认证
+- WebSocket Token 认证
+- macOS Seatbelt 代码沙箱
+- AI 离线概念问答、代码解释、错误诊断、代码检查
+- 自动化测试 15 项
+- 前端代码拆分：
+  - `api.ts`：API/WS 配置独立
+  - `EnvCheck.tsx`：环境检查独立
+  - `AdminPanel.tsx`：管理面板独立
+- 后端安全模块拆分：
+  `security.py`：JWT/权限/登录限流独立
+
+### 变更
+- 密码由 SHA-256 无盐改为 PBKDF2 加盐
+- CORS 改为白名单
+- Token 由内存改为 JWT
+- 前端统一自动附带 JWT
+- 运行环境检测支持 Windows/macOS 双端
+- Windows 使用 `.exe`、MinGW、`-static`
+- macOS 使用无后缀二进制、系统 clang、移除 `-static`
+- SQLite 使用线程级连接复用
+- 协作房间昵称固定为登录账号
+- `.gitignore` 忽略 `_tools/dotnet/`
+
+### 备注
+- 内置演示账号 `编程学习者 / 123456` 仅建议本地使用
+
 ---
 
 ## [0.16.0] - 2026-09-04

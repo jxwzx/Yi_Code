@@ -6,7 +6,7 @@
 或者:
     uvicorn services.local_api.main:app --host 0.0.0.0 --port 8000 --reload
 """
-from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import random
 import socket
+from urllib.parse import parse_qs
 
 # ---------- 确保项目根目录在 sys.path 中 ----------
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,7 +31,8 @@ if str(ROOT) not in sys.path:
 
 from runtime.manager import MultiLangRuntime
 from ai.provider import AIProvider, LocalAIProvider, get_provider
-from services.local_api.database import init_db, query_all, query_one, execute as db_execute, _hash_password, generate_target_id, verify_admin_permission
+from services.local_api.database import init_db, query_all, query_one, execute as db_execute, _hash_password, _verify_password, generate_target_id
+from services.local_api.security import _issue_token, _current_user, _require_admin, _require_user, _check_login_limit, _record_login_failure, _clear_login_failures
 
 
 # ============ FastAPI 应用 ============
@@ -42,20 +44,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# WebSocket 允许跨域
-@app.middleware("http")
-async def add_websocket_headers(request, call_next):
-    response = await call_next(request)
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    return response
 
 # ============ 全局对象 ============
 runtime = MultiLangRuntime()
@@ -264,6 +257,18 @@ INSTALL_CONFIG = {
         "size_mb": "~50MB",
         "description": "C++ 编译环境，需要 7z 解压支持 (pip install py7zr)",
     },
+    "go": {
+        "name": "Go (Golang)",
+        "script": "_tools/install_go.py",
+        "size_mb": "~70MB",
+        "description": "Go 编译与运行环境，自动下载到项目 _tools/go",
+    },
+    "cs": {
+        "name": ".NET SDK 8",
+        "script": "_tools/install_dotnet.py",
+        "size_mb": "~210MB",
+        "description": "C# 编译与运行环境，自动下载到项目 _tools/dotnet",
+    },
 }
 
 @app.post("/install/{env}")
@@ -377,6 +382,20 @@ def _get_mode_system_prompt(mode: str, lang: str = "py") -> str:
         return "你是 YiCode 编程助教，专注于帮助初学者和大学生学习编程。请直接给出代码，用中文注释解释。简洁明了。"
 
 
+def _is_ai_failure(reply: str) -> bool:
+    return reply.startswith(("错误：未配置 MiMo", "MiMo API 错误", "网络错误：", "AI 调用失败"))
+
+
+def _with_local_fallback(reply: str, local_factory) -> str:
+    """MiMo 在线调用失败时自动切换本地 AI，保证助教可用。"""
+    if not _is_ai_failure(reply):
+        return reply
+    try:
+        return f"{local_factory()}\n\n（注：MiMo 在线调用失败，本次已使用本地 AI 回复）"
+    except Exception:
+        return reply
+
+
 @app.post("/ai/chat")
 async def ai_chat(req: AIChatRequest):
     """AI 对话接口 - 支持问题检测、知识点讲解"""
@@ -403,11 +422,17 @@ async def ai_chat(req: AIChatRequest):
         if ("检查" in user_msg or "错误" in user_msg or "bug" in user_msg or "问题" in user_msg) and code:
             # 代码诊断
             if req.error_msg:
-                reply = active_ai.diagnose_error(req.error_msg, code)
+                reply = _with_local_fallback(
+                    active_ai.diagnose_error(req.error_msg, code),
+                    lambda: local_ai.diagnose_error(req.error_msg, code),
+                )
             else:
                 reply = _enhanced_code_review(code, lang, active_ai)
         elif ("解释" in user_msg or "讲解" in user_msg or "说明" in user_msg) and code:
-            reply = active_ai.explain_code(code)
+            reply = _with_local_fallback(
+                active_ai.explain_code(code),
+                lambda: local_ai.explain_code(code),
+            )
         else:
             # 通用代码生成 / 知识问答 - 使用模式特定的系统提示词
             system_prompt = _get_mode_system_prompt(mode, lang)
@@ -417,7 +442,10 @@ async def ai_chat(req: AIChatRequest):
             ]
             if code:
                 messages[1]["content"] += f"\n\n【上下文代码 ({lang})】\n```\n{code}\n```"
-            reply = active_ai.chat(messages, max_tokens=512 if mode != "deep" else 1024)
+            reply = _with_local_fallback(
+                active_ai.chat(messages, max_tokens=512 if mode != "deep" else 1024),
+                lambda: local_ai.chat(messages, max_tokens=512 if mode != "deep" else 1024),
+            )
     except Exception as e:
         reply = f"[AI 服务暂时不可用，使用本地知识库回复] 抱歉遇到小问题: {e}. 你可以试试点击快捷操作按钮。"
 
@@ -438,16 +466,25 @@ async def ai_chat(req: AIChatRequest):
 def _enhanced_code_review(code: str, lang: str, provider: AIProvider) -> str:
     """增强版代码评审：provider诊断 + 本地规则库"""
     # 使用 chat 接口做代码审查，而不是 diagnose_error
-    if isinstance(provider, LocalAIProvider):
-        provider_resp = provider.chat([
+    review_messages = (
+        [
             {"role": "system", "content": "你是代码审查专家。请检查代码中的错误、警告和改进建议。"},
             {"role": "user", "content": f"请审查以下 {lang} 代码：\n```\n{code}\n```"},
-        ])
-    else:
-        provider_resp = provider.chat([
+        ]
+        if isinstance(provider, LocalAIProvider)
+        else [
             {"role": "system", "content": "你是代码审查专家。请用中文分析代码中的问题，包括：1.语法错误 2.逻辑漏洞 3.性能问题 4.改进建议。简洁明了。"},
             {"role": "user", "content": f"审查代码：\n```{lang}\n{code}\n```"},
-        ], max_tokens=512)
+        ]
+    )
+    provider_resp = provider.chat(review_messages, max_tokens=512)
+    if _is_ai_failure(provider_resp):
+        provider_resp = local_ai.chat(
+            [
+                {"role": "system", "content": "你是代码审查专家。请检查代码中的错误、警告和改进建议。"},
+                {"role": "user", "content": f"请审查以下 {lang} 代码：\n```\n{code}\n```"},
+            ]
+        )
     # 追加本地更详细的提示
     base = f"📝 **代码评审报告 ({lang.upper()})**\n\n"
     base += f"✅ **代码长度**: {len(code.splitlines())} 行, {len(code)} 字符\n\n"
@@ -491,7 +528,7 @@ def _enhanced_code_review(code: str, lang: str, provider: AIProvider) -> str:
 async def ai_explain(req: DiagnoseRequest):
     """解释代码"""
     try:
-        reply = ai.explain_code(req.code)
+        reply = _with_local_fallback(ai.explain_code(req.code), lambda: local_ai.explain_code(req.code))
     except Exception as e:
         raise HTTPException(500, str(e))
     return {"reply": reply}
@@ -501,7 +538,10 @@ async def ai_explain(req: DiagnoseRequest):
 async def ai_diagnose(req: DiagnoseRequest):
     """诊断错误"""
     try:
-        reply = ai.diagnose_error(req.error_msg or "诊断代码问题", req.code)
+        reply = _with_local_fallback(
+            ai.diagnose_error(req.error_msg or "诊断代码问题", req.code),
+            lambda: local_ai.diagnose_error(req.error_msg or "诊断代码问题", req.code),
+        )
     except Exception as e:
         raise HTTPException(500, str(e))
     return {"reply": reply}
@@ -549,6 +589,10 @@ def register(req: RegisterRequest):
     existing = query_one("SELECT id FROM users WHERE username = ?", (req.username,))
     if existing:
         raise HTTPException(400, "用户名已存在")
+    if len(req.password) < 8:
+        raise HTTPException(400, "密码长度至少 8 位")
+    if len(req.password) > 128:
+        raise HTTPException(400, "密码长度不能超过 128 位")
     
     # 自动生成 target_id
     target_id = generate_target_id("student")
@@ -557,19 +601,48 @@ def register(req: RegisterRequest):
         "INSERT INTO users (username, password_hash, email, avatar, target_id) VALUES (?,?,?,?,?)",
         (req.username, _hash_password(req.password), req.email, req.avatar or req.username[0], target_id),
     )
-    return {"user_id": uid, "username": req.username, "target_id": target_id, "message": "注册成功"}
+    new_user = query_one(
+        "SELECT id, username, avatar, level, xp, streak_days, role, target_id FROM users WHERE id = ?",
+        (uid,),
+    )
+    token = _issue_token(uid)
+    return {
+        "user_id": uid,
+        "username": new_user["username"],
+        "avatar": new_user["avatar"],
+        "level": new_user["level"],
+        "xp": new_user["xp"],
+        "streak_days": new_user["streak_days"],
+        "role": new_user.get("role", "student"),
+        "target_id": new_user.get("target_id"),
+        "token": token,
+        "message": "注册成功",
+    }
 
 @app.post("/auth/login")
 def login(req: LoginRequest):
+    _check_login_limit(req.username)
     user = query_one("SELECT * FROM users WHERE username = ?", (req.username,))
-    if not user or user["password_hash"] != _hash_password(req.password):
+    if not user or not _verify_password(req.password, user["password_hash"]):
+        _record_login_failure(req.username)
         raise HTTPException(401, "用户名或密码错误")
+    _clear_login_failures(req.username)
+
+    # 迁移旧版无盐 SHA-256 哈希到 PBKDF2
+    if not user["password_hash"].startswith("pbkdf2_sha256$"):
+        db_execute(
+            "UPDATE users SET password_hash=? WHERE id=?",
+            (_hash_password(req.password), user["id"]),
+        )
+    token = _issue_token(user["id"])
     return {"user_id": user["id"], "username": user["username"], "avatar": user["avatar"],
             "level": user["level"], "xp": user["xp"], "streak_days": user["streak_days"],
-            "role": user.get("role", "student"), "target_id": user.get("target_id")}
+            "role": user.get("role", "student"), "target_id": user.get("target_id"),
+            "token": token}
 
 @app.get("/users/{user_id}")
-def get_user(user_id: int):
+def get_user(user_id: int, authorization: Optional[str] = Header(None)):
+    _require_user(authorization, user_id)
     user = query_one("SELECT id, username, avatar, level, xp, streak_days, email, role, target_id, created_at FROM users WHERE id = ?", (user_id,))
     if not user:
         raise HTTPException(404, "用户不存在")
@@ -580,13 +653,9 @@ def get_user(user_id: int):
 ROLE_LABELS = {"super_admin": "超级管理员", "admin": "管理员", "student": "学生"}
 
 @app.get("/admin/users")
-def admin_list_users(operator_id: int = None):
+def admin_list_users(authorization: Optional[str] = Header(None)):
     """列出所有用户（含角色信息）- 需要管理员权限"""
-    # 验证操作者权限
-    if operator_id:
-        operator = verify_admin_permission(operator_id)
-        if not operator:
-            raise HTTPException(403, "需要管理员权限")
+    _require_admin(authorization)
     
     users = query_all("SELECT id, username, avatar, level, xp, streak_days, role, target_id, created_at FROM users ORDER BY id")
     for u in users:
@@ -595,8 +664,9 @@ def admin_list_users(operator_id: int = None):
 
 
 @app.post("/admin/users/{user_id}/role")
-def admin_set_role(user_id: int, role: str = "student"):
+def admin_set_role(user_id: int, role: str = "student", authorization: Optional[str] = Header(None)):
     """设置用户角色（仅超管可操作）"""
+    _require_admin(authorization, super_only=True)
     if role not in ("student", "admin", "super_admin"):
         raise HTTPException(400, f"无效角色: {role}，可选: student/admin/super_admin")
 
@@ -631,13 +701,9 @@ def admin_set_role(user_id: int, role: str = "student"):
 
 
 @app.delete("/admin/users/{user_id}")
-def admin_delete_user(user_id: int, operator_id: int = None):
+def admin_delete_user(user_id: int, authorization: Optional[str] = Header(None)):
     """删除用户（超管不可删除自己，不可删除其他超管）- 需要管理员权限"""
-    # 验证操作者权限
-    if operator_id:
-        operator = verify_admin_permission(operator_id)
-        if not operator:
-            raise HTTPException(403, "需要管理员权限")
+    _require_admin(authorization)
     
     user = query_one("SELECT id, role FROM users WHERE id = ?", (user_id,))
     if not user:
@@ -650,7 +716,8 @@ def admin_delete_user(user_id: int, operator_id: int = None):
 
 # ============ 仪表盘数据 ============
 @app.get("/users/{user_id}/dashboard")
-def get_dashboard(user_id: int):
+def get_dashboard(user_id: int, authorization: Optional[str] = Header(None)):
+    _require_user(authorization, user_id)
     user = query_one("SELECT id, username, avatar, level, xp, streak_days FROM users WHERE id = ?", (user_id,))
     if not user:
         raise HTTPException(404, "用户不存在")
@@ -865,17 +932,23 @@ class TaskRequest(BaseModel):
     title: str
 
 @app.post("/tasks")
-def create_task(req: TaskRequest):
+def create_task(req: TaskRequest, authorization: Optional[str] = Header(None)):
+    _require_user(authorization, req.user_id)
     tid = db_execute("INSERT INTO study_tasks (user_id, title) VALUES (?,?)", (req.user_id, req.title))
     return {"task_id": tid, "message": "任务已创建"}
 
 @app.put("/tasks/{task_id}")
-def toggle_task(task_id: int, completed: bool = True):
+def toggle_task(task_id: int, completed: bool = True, authorization: Optional[str] = Header(None)):
+    task = query_one("SELECT user_id FROM study_tasks WHERE id = ?", (task_id,))
+    if not task:
+        raise HTTPException(404, "任务不存在")
+    _require_user(authorization, task["user_id"])
     db_execute("UPDATE study_tasks SET completed = ? WHERE id = ?", (1 if completed else 0, task_id))
     return {"task_id": task_id, "completed": completed}
 
 @app.get("/tasks/user/{user_id}")
-def list_user_tasks(user_id: int):
+def list_user_tasks(user_id: int, authorization: Optional[str] = Header(None)):
+    _require_user(authorization, user_id)
     tasks = query_all("SELECT * FROM study_tasks WHERE user_id = ? ORDER BY created_at", (user_id,))
     return {"count": len(tasks), "tasks": tasks}
 
@@ -888,7 +961,8 @@ class ProgressRequest(BaseModel):
     last_lesson_id: Optional[int] = None
 
 @app.post("/progress")
-def update_progress(req: ProgressRequest):
+def update_progress(req: ProgressRequest, authorization: Optional[str] = Header(None)):
+    _require_user(authorization, req.user_id)
     existing = query_one("SELECT id FROM learning_progress WHERE user_id = ? AND course_id = ?", (req.user_id, req.course_id))
     if existing:
         db_execute(
@@ -903,7 +977,8 @@ def update_progress(req: ProgressRequest):
     return {"message": "进度已更新"}
 
 @app.get("/progress/{user_id}")
-def get_progress(user_id: int):
+def get_progress(user_id: int, authorization: Optional[str] = Header(None)):
+    _require_user(authorization, user_id)
     rows = query_all(
         "SELECT lp.*, c.title as course_title, c.icon as course_icon, c.color as course_color FROM learning_progress lp JOIN courses c ON lp.course_id = c.id WHERE lp.user_id = ?",
         (user_id,),
@@ -918,7 +993,8 @@ class ActivityRequest(BaseModel):
     description: str
 
 @app.post("/activities")
-def add_activity(req: ActivityRequest):
+def add_activity(req: ActivityRequest, authorization: Optional[str] = Header(None)):
+    _require_user(authorization, req.user_id)
     aid = db_execute("INSERT INTO activities (user_id, type, description) VALUES (?,?,?)", (req.user_id, req.type, req.description))
     return {"activity_id": aid, "message": "活动已记录"}
 
@@ -932,8 +1008,9 @@ class DraftRequest(BaseModel):
     exercise_title: Optional[str] = None
 
 @app.post("/drafts")
-def save_draft(req: DraftRequest):
+def save_draft(req: DraftRequest, authorization: Optional[str] = Header(None)):
     """保存/更新代码草稿（UPSERT）"""
+    _require_user(authorization, req.user_id)
     existing = query_one(
         "SELECT id FROM code_drafts WHERE user_id = ? AND exercise_id = ?",
         (req.user_id, req.exercise_id),
@@ -952,8 +1029,9 @@ def save_draft(req: DraftRequest):
         return {"message": "草稿已保存", "draft_id": did}
 
 @app.get("/drafts/{user_id}/latest")
-def get_latest_draft(user_id: int):
+def get_latest_draft(user_id: int, authorization: Optional[str] = Header(None)):
     """获取用户最近编辑的草稿（用于刷新后恢复到上次编辑的题目）"""
+    _require_user(authorization, user_id)
     draft = query_one(
         """SELECT d.*, e.title as ex_title, e.description as ex_desc, e.difficulty as ex_diff,
                   e.starter_code as ex_starter, e.accept_rate as ex_rate, e.tags as ex_tags
@@ -981,8 +1059,9 @@ def get_latest_draft(user_id: int):
     return {"found": True, "exercise": exercise, "code": draft["code"]}
 
 @app.get("/drafts/{user_id}/list")
-def list_drafts(user_id: int):
+def list_drafts(user_id: int, authorization: Optional[str] = Header(None)):
     """列出用户所有草稿"""
+    _require_user(authorization, user_id)
     rows = query_all(
         "SELECT exercise_id, exercise_title, language, updated_at FROM code_drafts WHERE user_id = ? ORDER BY updated_at DESC",
         (user_id,),
@@ -990,8 +1069,9 @@ def list_drafts(user_id: int):
     return {"count": len(rows), "drafts": rows}
 
 @app.get("/drafts/{user_id}/{exercise_id}")
-def get_draft(user_id: int, exercise_id: int):
+def get_draft(user_id: int, exercise_id: int, authorization: Optional[str] = Header(None)):
     """获取用户某道题的代码草稿（刷新恢复用）"""
+    _require_user(authorization, user_id)
     draft = query_one(
         "SELECT * FROM code_drafts WHERE user_id = ? AND exercise_id = ?",
         (user_id, exercise_id),
@@ -1001,7 +1081,8 @@ def get_draft(user_id: int, exercise_id: int):
     return {"found": True, "draft": draft}
 
 @app.delete("/drafts/{user_id}/{exercise_id}")
-def delete_draft(user_id: int, exercise_id: int):
+def delete_draft(user_id: int, exercise_id: int, authorization: Optional[str] = Header(None)):
+    _require_user(authorization, user_id)
     db_execute("DELETE FROM code_drafts WHERE user_id = ? AND exercise_id = ?", (user_id, exercise_id))
     return {"message": "草稿已删除"}
 
@@ -1013,13 +1094,14 @@ class CreateRoomRequest(BaseModel):
 
 
 @app.post("/rooms")
-async def create_room(req: CreateRoomRequest):
+async def create_room(req: CreateRoomRequest, authorization: Optional[str] = Header(None)):
     """创建协作房间，返回 6 位房间码 + 局域网地址"""
+    operator = _current_user(authorization)
     code = _gen_room_code()
     lan_ip = _get_lan_ip()
     collab_rooms[code] = {
         "code": code,
-        "host": req.host_name,
+        "host": operator["username"],
         "language": req.language,
         "created_at": datetime.now().isoformat(),
         "members": {},
@@ -1030,15 +1112,16 @@ async def create_room(req: CreateRoomRequest):
         "lan_ip": lan_ip,
         "ws_url": f"ws://{lan_ip}:8000/ws/room/{code}",
         "share_url": f"http://{lan_ip}:1420/?room={code}",
-        "host": req.host_name,
+        "host": operator["username"],
         "language": req.language,
         "created_at": collab_rooms[code]["created_at"],
     }
 
 
 @app.get("/rooms/{code}")
-async def get_room(code: str):
+async def get_room(code: str, authorization: Optional[str] = Header(None)):
     """查询房间是否存在 + 在线成员"""
+    _current_user(authorization)
     if code not in collab_rooms:
         raise HTTPException(404, f"房间 {code} 不存在或已关闭")
     room = collab_rooms[code]
@@ -1058,10 +1141,13 @@ async def get_room(code: str):
 
 
 @app.delete("/rooms/{code}")
-async def close_room(code: str):
+async def close_room(code: str, authorization: Optional[str] = Header(None)):
     """关闭房间"""
+    operator = _current_user(authorization)
     if code not in collab_rooms:
         raise HTTPException(404, "房间不存在")
+    if operator["role"] != "super_admin" and operator["username"] != collab_rooms[code]["host"]:
+        raise HTTPException(403, "只有房主或超管可以关闭房间")
     # 通知所有成员房间关闭
     for ws in list(collab_connections.get(code, {}).keys()):
         try:
@@ -1095,7 +1181,19 @@ async def room_websocket(websocket: WebSocket, code: str):
     """协作房间 WebSocket：处理加入/代码同步/聊天/光标/离开"""
     print(f"[WebSocket] 新连接请求: 房间 {code}, 客户端: {websocket.client}")
     print(f"[WebSocket] 当前活跃房间: {list(collab_rooms.keys())}")
-    
+
+    # WebSocket 通过 URL Query 校验登录 Token
+    params = parse_qs(websocket.url.query)
+    token = (params.get("token") or [""])[0]
+    if not token:
+        await websocket.close(code=4401, reason="缺少登录 Token")
+        return
+    try:
+        user = _current_user(f"Bearer {token}")
+    except HTTPException:
+        await websocket.close(code=4401, reason="Token 无效或已过期")
+        return
+
     if code not in collab_rooms:
         print(f"[WebSocket] 房间 {code} 不存在，关闭连接")
         await websocket.close(code=4004, reason="房间不存在或已关闭")
@@ -1109,13 +1207,16 @@ async def room_websocket(websocket: WebSocket, code: str):
     try:
         first = await websocket.receive_text()
         data = json.loads(first)
-        user_name = data.get("name", f"访客{random.randint(100,999)}")
-        user_role = data.get("role", "writer")
+        client_name = data.get("name", "")
+        if not client_name or client_name != user["username"]:
+            await websocket.close(code=4403, reason="用户名与登录账号不一致")
+            return
+        user_name = user["username"]
+        user_role = "writer" if user_name == room.get("host") else "obs"
         user_color = data.get("color", "a")
     except Exception:
-        user_name = f"访客{random.randint(100,999)}"
-        user_role = "writer"
-        user_color = "a"
+        await websocket.close(code=4403, reason="加入房间信息无效")
+        return
 
     # 注册连接
     collab_connections[code][websocket] = user_name
@@ -1161,6 +1262,9 @@ async def room_websocket(websocket: WebSocket, code: str):
             msg_type = msg.get("type", "")
 
             if msg_type == "code_sync":
+                current_member = room.get("members", {}).get(user_name, {})
+                if current_member.get("role") != "writer":
+                    continue
                 # 代码同步：更新房间共享代码 + 广播
                 room["shared_code"] = msg.get("code", "")
                 room["language"] = msg.get("lang", room.get("language", "py"))
@@ -1207,6 +1311,9 @@ async def room_websocket(websocket: WebSocket, code: str):
                         pass
 
             elif msg_type == "lang_change":
+                current_member = room.get("members", {}).get(user_name, {})
+                if current_member.get("role") != "writer":
+                    continue
                 # 语言切换广播
                 room["language"] = msg.get("lang", "py")
                 for ws, _ in list(collab_connections[code].items()):
@@ -1221,6 +1328,9 @@ async def room_websocket(websocket: WebSocket, code: str):
                             pass
 
             elif msg_type == "role_change":
+                # 只有房主可以改变自身角色；其他成员写权限必须经房主审批
+                if user_name != room.get("host"):
+                    continue
                 # 角色切换
                 new_role = msg.get("role", "writer")
                 if user_name in room.get("members", {}):
@@ -1324,8 +1434,3 @@ if __name__ == "__main__":
     print("API 文档: http://localhost:8000/docs")
     print("=" * 60)
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
-
-
-
-
-

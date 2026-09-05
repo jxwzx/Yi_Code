@@ -42,6 +42,8 @@ class MultiLangRuntime:
             r"C:\Program Files\Java\jdk-21.0.12\bin\javac.exe",
             # 项目本地安装的 JDK（install_jdk.py 下载到 _tools/jdk）
             str(Path(__file__).resolve().parents[1] / "_tools" / "jdk" / "bin" / "javac.exe"),
+            # macOS / Linux 本地安装的 JDK
+            str(Path(__file__).resolve().parents[1] / "_tools" / "jdk" / "bin" / "javac"),
         ],
         "java": [
             r"C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot\bin\java.exe",
@@ -49,6 +51,8 @@ class MultiLangRuntime:
             r"C:\Program Files\Java\jdk-21.0.12\bin\java.exe",
             # 项目本地安装的 JDK
             str(Path(__file__).resolve().parents[1] / "_tools" / "jdk" / "bin" / "java.exe"),
+            # macOS / Linux 本地安装的 JDK
+            str(Path(__file__).resolve().parents[1] / "_tools" / "jdk" / "bin" / "java"),
         ],
         "go": [
             r"C:\Program Files\Go\bin\go.exe",
@@ -56,20 +60,33 @@ class MultiLangRuntime:
             r"C:\Go\bin\go.exe",
             # 项目本地安装的 Go（install_go.py 下载到 _tools/go）
             str(Path(__file__).resolve().parents[1] / "_tools" / "go" / "bin" / "go.exe"),
+            # macOS 本地安装的 Go
+            str(Path(__file__).resolve().parents[1] / "_tools" / "go" / "bin" / "go"),
         ],
         "dotnet": [
             r"C:\Program Files\dotnet\dotnet.exe",
             r"C:\Program Files (x86)\dotnet\dotnet.exe",
+            # Windows 本地安装的 .NET SDK
+            str(Path(__file__).resolve().parents[1] / "_tools" / "dotnet" / "dotnet.exe"),
+            # macOS 本地安装的 .NET SDK
+            str(Path(__file__).resolve().parents[1] / "_tools" / "dotnet" / "dotnet"),
+        ],
+        "docker": [
+            r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
         ],
     }
 
     @classmethod
     def _resolve_bin(cls, name: str) -> Optional[str]:
-        """先 shutil.which (PATH)，失败再查硬编码绝对路径表"""
+        """优先项目本地工具，再查 PATH，最后查系统安装目录。"""
+        paths = cls._EXTRA_BIN_PATHS.get(name, [])
+        for p in paths:
+            if "_tools" in str(p) and os.path.exists(p):
+                return p
         path = shutil.which(name)
         if path:
             return path
-        for p in cls._EXTRA_BIN_PATHS.get(name, []):
+        for p in paths:
             if os.path.exists(p):
                 return p
         return None
@@ -124,10 +141,39 @@ class MultiLangRuntime:
         },
     }
 
+    _DOCKER_IMAGES: Dict[str, str] = {
+        "py": "python:3.13",
+        "js": "node:22",
+        "cpp": "gcc:14",
+        "java": "eclipse-temurin:21",
+        "go": "golang:1.27",
+        "cs": "mcr.microsoft.com/dotnet/sdk:8.0",
+    }
+
     def __init__(self, sandbox_dir: Optional[str] = None):
         self.sandbox_root = Path(sandbox_dir or (tempfile.gettempdir() + "/yicode_sandbox"))
         self.sandbox_root.mkdir(parents=True, exist_ok=True)
         self._runtime_cache: Dict[str, Any] = {}
+
+    def _sandbox_command(self, cmd: List[str]) -> List[str]:
+        """macOS 上用 Seatbelt 限制用户代码访问网络和任意文件写入。"""
+        if sys.platform != "darwin" or not shutil.which("sandbox-exec"):
+            return cmd
+        allowed_paths = sorted({
+            os.path.realpath(str(self.sandbox_root)),
+            os.path.realpath(tempfile.gettempdir()),
+        })
+        profile_parts = [
+            "(version 1)",
+            "(allow default)",
+            "(deny network*)",
+            "(deny file-write*)",
+        ]
+        profile_parts.extend(
+            f'(allow file-write* (subpath "{p}"))' for p in allowed_paths
+        )
+        profile_parts.append('(allow file-write* (literal "/dev/null"))')
+        return ["/usr/bin/sandbox-exec", "-p", " ".join(profile_parts)] + cmd
 
     # ================== 环境检测 ==================
     def detect_all_runtimes(self) -> Dict[str, Dict[str, Any]]:
@@ -219,7 +265,9 @@ class MultiLangRuntime:
 
         start_time = time.time()
         try:
-            if lang == "cs":
+            if self._docker_enabled() and self._docker_bin():
+                result = self._run_docker(lang, src_file, task_dir, timeout, stdin)
+            elif lang == "cs":
                 result = self._run_csharp_dotnet(src_file, task_dir, timeout, stdin)
             elif lang == "cpp":
                 result = self._run_compiled(lang, src_file, task_dir, cfg, timeout, stdin)
@@ -263,6 +311,7 @@ class MultiLangRuntime:
     # ---------- 解释型语言 ----------
     def _run_interpreted(self, cmd: List[str], cwd: Path, timeout: int,
                          stdin: Optional[str]) -> Dict[str, Any]:
+        cmd = self._sandbox_command(cmd)
         r = subprocess.run(cmd, cwd=str(cwd), capture_output=True,
                            text=True, timeout=timeout, input=stdin, encoding="utf-8",
                            errors="replace")
@@ -277,10 +326,14 @@ class MultiLangRuntime:
     def _run_compiled(self, lang: str, src_file: Path, task_dir: Path,
                       cfg: Dict[str, Any], timeout: int,
                       stdin: Optional[str]) -> Dict[str, Any]:
-        bin_file = task_dir / f"out{cfg.get('bin_ext', '.exe')}"
+        bin_ext = ".exe" if os.name == "nt" else ""
+        bin_file = task_dir / f"out{bin_ext}"
         comp_cmd = [c.format(file=str(src_file), bin=str(bin_file))
                      for c in cfg["compiler"]]
         if lang == "cpp":
+            # macOS 的 Apple clang 不支持 -static，去掉静态链接参数
+            if os.name != "nt":
+                comp_cmd = [c for c in comp_cmd if c != "-static"]
             # 直接使用缓存的绝对路径 (detect 阶段存的)；兜底再 resolve 一次
             compiler = self._runtime_cache.get("cpp_compiler") or self._resolve_bin("g++")
             if not compiler:
@@ -293,8 +346,17 @@ class MultiLangRuntime:
                 return {"success": False, "error": "Go 未安装"}
             comp_cmd[0] = go_bin
 
-        comp = subprocess.run(comp_cmd, cwd=str(task_dir), capture_output=True,
-                              text=True, timeout=timeout * 2)
+        custom_env = {**os.environ}
+        if lang == "go":
+            go_cache = self.sandbox_root / "go_cache"
+            go_tmp = self.sandbox_root / "go_tmp"
+            go_cache.mkdir(parents=True, exist_ok=True)
+            go_tmp.mkdir(parents=True, exist_ok=True)
+            custom_env["GOCACHE"] = str(go_cache)
+            custom_env["GOTMPDIR"] = str(go_tmp)
+
+        comp = subprocess.run(self._sandbox_command(comp_cmd), cwd=str(task_dir), capture_output=True,
+                              text=True, timeout=timeout * 2, env=custom_env)
         if comp.returncode != 0:
             return {
                 "success": False,
@@ -303,8 +365,8 @@ class MultiLangRuntime:
                 "stderr": f"❌ 编译失败:\n{comp.stderr or comp.stdout}",
             }
         run_cmd = [c.format(bin=str(bin_file)) for c in cfg["run"]]
-        r = subprocess.run(run_cmd, cwd=str(task_dir), capture_output=True,
-                           text=True, timeout=timeout, input=stdin, encoding="utf-8",
+        r = subprocess.run(self._sandbox_command(run_cmd), cwd=str(task_dir), capture_output=True,
+                           text=True, timeout=timeout, input=stdin, encoding="utf-8", env=custom_env,
                            errors="replace")
         return {
             "success": r.returncode == 0,
@@ -320,7 +382,7 @@ class MultiLangRuntime:
         java_bin = self._runtime_cache.get("java_bin") or self._resolve_bin("java")
         if not (javac_bin and java_bin):
             return {"success": False, "error": "JDK 未安装或 javac/java 不在 PATH/已知安装目录"}
-        comp = subprocess.run([javac_bin, str(src_file)], cwd=str(task_dir),
+        comp = subprocess.run(self._sandbox_command([javac_bin, str(src_file)]), cwd=str(task_dir),
                               capture_output=True, text=True, timeout=timeout * 2)
         if comp.returncode != 0:
             return {
@@ -328,7 +390,7 @@ class MultiLangRuntime:
                 "stdout": comp.stdout,
                 "stderr": f"❌ 编译失败:\n{comp.stderr or comp.stdout}",
             }
-        r = subprocess.run([java_bin, "-cp", str(task_dir), "Main"], cwd=str(task_dir),
+        r = subprocess.run(self._sandbox_command([java_bin, "-cp", str(task_dir), "Main"]), cwd=str(task_dir),
                            capture_output=True, text=True, timeout=timeout,
                            input=stdin, encoding="utf-8", errors="replace")
         return {
@@ -339,14 +401,10 @@ class MultiLangRuntime:
         }
 
     # ---------- C# .NET 处理（使用临时控制台项目方式） ----------
-    def _run_csharp_dotnet(self, src_file: Path, task_dir: Path, timeout: int,
-                           stdin: Optional[str]) -> Dict[str, Any]:
-        dotnet_bin = self._runtime_cache.get("dotnet_bin") or self._resolve_bin("dotnet")
-        if not dotnet_bin:
-            return {"success": False, "error": ".NET SDK 未安装"}
+    def _prepare_csharp_project(self, src_file: Path, task_dir: Path) -> Path:
+        """生成 C# 控制台项目文件，供本机 dotnet 与 Docker 两种模式复用。"""
         proj_dir = task_dir / "CsProj"
         proj_dir.mkdir(exist_ok=True)
-        # 创建 csproj
         csproj = """<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -359,6 +417,14 @@ class MultiLangRuntime:
 </Project>"""
         (proj_dir / "CsProj.csproj").write_text(csproj, encoding="utf-8")
         (proj_dir / "Program.cs").write_text(src_file.read_text(encoding="utf-8"), encoding="utf-8")
+        return proj_dir
+
+    def _run_csharp_dotnet(self, src_file: Path, task_dir: Path, timeout: int,
+                           stdin: Optional[str]) -> Dict[str, Any]:
+        dotnet_bin = self._runtime_cache.get("dotnet_bin") or self._resolve_bin("dotnet")
+        if not dotnet_bin:
+            return {"success": False, "error": ".NET SDK 未安装"}
+        proj_dir = self._prepare_csharp_project(src_file, task_dir)
         # 为 dotnet run 配置独立的 NuGet 缓存路径，避免访问沙箱限制的 %APPDATA%\NuGet
         nuget_cache = self.sandbox_root / "nuget_cache"
         nuget_config_dir = self.sandbox_root / "nuget_config"
@@ -372,6 +438,9 @@ class MultiLangRuntime:
             "NUGET_HTTP_CACHE_PATH": str(nuget_cache / "http_cache"),
             "NUGET_PLUGINS_CACHE_PATH": str(nuget_cache / "plugins_cache"),
         }
+        dotnet_home = self.sandbox_root / "dotnet_home"
+        dotnet_home.mkdir(parents=True, exist_ok=True)
+        custom_env["DOTNET_CLI_HOME"] = str(dotnet_home)
         # 让 NuGet 在用户 Roaming 目录不可用时，自己定位到一个可写位置
         if "APPDATA" in custom_env and "Sandbox" in " ".join(sys.argv):
             custom_env["APPDATA"] = str(nuget_config_dir)
@@ -380,7 +449,9 @@ class MultiLangRuntime:
             custom_env["APPDATA"] = str(nuget_config_dir)
         try:
             run = subprocess.run(
-                [dotnet_bin, "run", "--project", str(proj_dir), "-c", "Release", "--nologo"],
+                self._sandbox_command(
+                    [dotnet_bin, "run", "--project", str(proj_dir), "-c", "Release", "--nologo"]
+                ),
                 capture_output=True, text=True,
                 timeout=timeout * 3,  # 首次 dotnet build 较慢
                 input=stdin, encoding="utf-8", errors="replace",
@@ -394,6 +465,139 @@ class MultiLangRuntime:
             }
         except subprocess.TimeoutExpired:
             raise
+
+    # ================== Docker 沙箱 ==================
+    @classmethod
+    def _docker_enabled(cls) -> bool:
+        """YICODE_DOCKER_SANDBOX=1/true/yes/on 时启用 Docker 执行。"""
+        value = os.getenv("YICODE_DOCKER_SANDBOX", "").strip().lower()
+        return value in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def _docker_bin(cls) -> Optional[str]:
+        return cls._resolve_bin("docker")
+
+    def _run_docker(self, lang: str, src_file: Path, task_dir: Path, timeout: int,
+                    stdin: Optional[str]) -> Dict[str, Any]:
+        docker_bin = self._docker_bin()
+        if not docker_bin:
+            return {
+                "success": False,
+                "error": (
+                    "Docker 沙箱已启用（YICODE_DOCKER_SANDBOX=1），"
+                    "但未找到 docker CLI。请先安装 Docker"
+                    "（Windows 建议 Docker Desktop + WSL2）后重试。"
+                ),
+            }
+        image = self._DOCKER_IMAGES.get(lang)
+        if not image:
+            return {"success": False, "error": f"Docker 模式暂不支持语言: {lang}"}
+
+        if lang in {"py", "js"}:
+            runner = "python" if lang == "py" else "node"
+            return self._docker_execute(
+                docker_bin, image, [runner, f"/workspace/{src_file.name}"],
+                timeout, stdin, task_dir,
+            )
+
+        if lang in {"cpp", "go", "java"}:
+            if lang == "cpp":
+                build_cmd = ["g++", "/workspace/main.cpp", "-std=c++17", "-O2",
+                             "-o", "/workspace/out"]
+            elif lang == "go":
+                build_cmd = ["go", "build", "-o", "/workspace/out", "/workspace/main.go"]
+            else:
+                build_cmd = ["javac", f"/workspace/{src_file.name}"]
+            build = self._docker_execute(
+                docker_bin, image, build_cmd, timeout * 2, None, task_dir,
+            )
+            if not build.get("success"):
+                if build.get("timed_out"):
+                    return build
+                return {
+                    "success": False,
+                    "exit_code": build.get("exit_code"),
+                    "stdout": build.get("stdout", ""),
+                    "stderr": f"❌ 编译失败:\n{build.get('stderr') or build.get('stdout') or ''}",
+                }
+            if lang == "java":
+                run_cmd = ["java", "-cp", "/workspace", "Main"]
+            else:
+                run_cmd = ["/workspace/out"]
+            return self._docker_execute(
+                docker_bin, image, run_cmd, timeout, stdin, task_dir,
+            )
+
+        if lang == "cs":
+            self._prepare_csharp_project(src_file, task_dir)
+            return self._docker_execute(
+                docker_bin, image,
+                ["dotnet", "run", "--project", "/workspace/CsProj", "-c", "Release", "--nologo"],
+                timeout * 3, stdin, task_dir,
+                extra_env={
+                    "DOTNET_NOLOGO": "1",
+                    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+                    "DOTNET_SKIP_FIRST_TIME_EXPERIENCE": "1",
+                    "DOTNET_CLI_HOME": "/tmp/dotnet_home",
+                    "NUGET_PACKAGES": "/tmp/nuget_cache",
+                    "NUGET_HTTP_CACHE_PATH": "/tmp/nuget_http_cache",
+                },
+            )
+
+        return {"success": False, "error": f"未知语言执行器: {lang}"}
+
+    def _docker_execute(self, docker_bin: str, image: str, cmd: List[str],
+                        timeout: int, stdin: Optional[str], task_dir: Path,
+                        extra_env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """在一次性容器中执行命令，并负责超时后的容器清理。"""
+        mount_source = str(task_dir).replace(os.sep, "/")
+        cidfile = task_dir / "docker.cid"
+        docker_args = [
+            docker_bin, "run", "--rm",
+            "--network", "none",
+            "--security-opt", "no-new-privileges",
+            "--workdir", "/workspace",
+            "--mount", f"type=bind,source={mount_source},target=/workspace",
+            "--cidfile", str(cidfile),
+        ]
+        for key, value in (extra_env or {}).items():
+            docker_args += ["--env", f"{key}={value}"]
+        docker_args += [image] + list(cmd)
+        try:
+            proc = subprocess.run(
+                docker_args,
+                capture_output=True, text=True, input=stdin,
+                timeout=timeout, encoding="utf-8", errors="replace",
+            )
+        except subprocess.TimeoutExpired:
+            self._docker_kill_by_cidfile(docker_bin, cidfile)
+            return {
+                "success": False,
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": f"⏰ 执行超时 (超过 {timeout}s)，可能存在死循环或性能问题。",
+                "timed_out": True,
+            }
+        return {
+            "success": proc.returncode == 0,
+            "exit_code": proc.returncode,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+        }
+
+    @staticmethod
+    def _docker_kill_by_cidfile(docker_bin: str, cidfile: Path) -> None:
+        """宿主侧超时后尽力清理容器，避免 --rm 容器残留。"""
+        try:
+            if not cidfile.exists():
+                return
+            cid = cidfile.read_text(encoding="utf-8").strip()
+            if not cid:
+                return
+            subprocess.run([docker_bin, "kill", cid], capture_output=True, timeout=10)
+            subprocess.run([docker_bin, "wait", cid], capture_output=True, timeout=10)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

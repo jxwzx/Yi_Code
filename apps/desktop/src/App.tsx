@@ -1,12 +1,25 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react'
 import './App.css'
 import { MonacoCodeEditor } from './MonacoEditor'
+import { API_BASE, WS_BASE } from './api'
+import { EnvCheck } from './EnvCheck'
+import { AdminPanel } from './AdminPanel'
+import { FlowchartView } from './FlowchartView'
+import { simulateRun, buildLocalAIReply } from './aiHelpers'
 
-// ============== 全局 API 配置 ==============
-const _hostname = window.location.hostname
-const _isLAN = !!_hostname && _hostname !== 'localhost' && _hostname !== '127.0.0.1'
-const API_BASE = _isLAN ? `http://${_hostname}:8000` : 'http://localhost:8000'
-const WS_BASE = _isLAN ? `ws://${_hostname}:8000` : 'ws://localhost:8000'
+// 全局给本地 API 请求自动附带 JWT，避免每个接口手动加请求头
+const _originalFetch = window.fetch.bind(window)
+window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  const headers = new Headers(init?.headers || {})
+  try {
+    const savedUser = localStorage.getItem('yicode_user')
+    if (savedUser) {
+      const token = JSON.parse(savedUser).token
+      if (token) headers.set('Authorization', `Bearer ${token}`)
+    }
+  } catch { /* ignore */ }
+  return _originalFetch(input, { ...init, headers })
+}) as typeof fetch
 
 // ============== YiCode 类型定义 ==============
 type PageKey = 'dashboard' | 'editor' | 'ai' | 'flowchart' | 'collab' | 'learn' | 'classroom' | 'envcheck' | 'admin'
@@ -21,6 +34,7 @@ interface CurrentUser {
   streak_days: number
   role: string       // student / admin / super_admin
   target_id: string | null  // 000(超管) / 001/002...(管理员) / null
+  token?: string
 }
 
 interface Exercise {
@@ -182,7 +196,7 @@ export default function App() {
           {page === 'flowchart' && <FlowchartView />}
           {/* 协作频道始终保持挂载，避免切换选项卡时 WebSocket 断开 */}
           <div style={{ display: page === 'collab' ? 'flex' : 'none', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-            <CollabChannel username={currentUser.username} />
+            <CollabChannel username={currentUser.username} token={currentUser.token || ''} />
           </div>
           {page === 'learn' && <LearnCenter setPage={setPagePersist} onOpenExercise={openExercise} searchQuery={searchQuery} />}
           {page === 'classroom' && <ClassroomView setPage={setPagePersist} />}
@@ -229,12 +243,13 @@ function LoginPage({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
         onLogin({
           user_id: data.user_id,
           username: data.username,
-          avatar: username[0] || '码',
-          level: 1,
-          xp: 0,
-          streak_days: 1,
-          role: 'student',
-          target_id: null,
+          avatar: data.avatar || username[0] || '码',
+          level: data.level || 1,
+          xp: data.xp || 0,
+          streak_days: data.streak_days || 1,
+          role: data.role || 'student',
+          target_id: data.target_id || null,
+          token: data.token,
         })
       }
     } catch (err: any) {
@@ -643,7 +658,7 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
   }>>([])
   const loadDashboard = async () => {
     try {
-      const resp = await fetch(`API_BASE/users/${userId}/dashboard`)
+      const resp = await fetch(`${API_BASE}/users/${userId}/dashboard`)
       if (resp.ok) {
         const data = await resp.json()
         setStats(data.stats || {})
@@ -679,7 +694,7 @@ function Dashboard({ setPage, userId }: { setPage: (p: PageKey) => void; userId:
   const toggleTask = async (taskId: number, currentCompleted: number) => {
     const newCompleted = currentCompleted === 0
     try {
-      await fetch(`API_BASE/tasks/${taskId}?completed=${newCompleted}`, { method: 'PUT' })
+      await fetch(`${API_BASE}/tasks/${taskId}?completed=${newCompleted}`, { method: 'PUT' })
       await loadDashboard()
     } catch (e) {
       // 忽略切换失败
@@ -890,7 +905,7 @@ function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId }: {
     if (exerciseId && !exercise) {
       // 刷新后恢复：从 API 获取最新草稿
       setRestored(true)
-      fetch(`API_BASE/drafts/${userId}/latest`)
+      fetch(`${API_BASE}/drafts/${userId}/latest`)
         .then(r => r.json())
         .then(data => {
           if (data.found && data.exercise) {
@@ -908,7 +923,7 @@ function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId }: {
     } else if (exerciseId && exercise) {
       // 有 exercise prop 且 localStorage 有 id：检查是否有草稿
       setRestored(true)
-      fetch(`API_BASE/drafts/${userId}/${exerciseId}`)
+      fetch(`${API_BASE}/drafts/${userId}/${exerciseId}`)
         .then(r => r.json())
         .then(data => {
           if (data.found && data.draft) {
@@ -1251,79 +1266,6 @@ function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId }: {
   )
 }
 
-// ============== 本地模拟运行 (保证前端独立可用) ==============
-function simulateRun(lang: LangKey, code: string): { stdout: string; stderr: string; exitCode: number } {
-  const stdout: string[] = []
-  const stderr: string[] = []
-  // 基于模板的预设输出（仅在离线时使用）
-  if (lang === 'py' && code.includes('fibonacci')) {
-    stdout.push('斐波那契数列前10项:')
-    stdout.push('[0, 1, 1, 2, 3, 5, 8, 13, 21, 34]')
-    stdout.push('')
-    stdout.push('计算完成！')
-    return { stdout: stdout.join('\n'), stderr: '', exitCode: 0 }
-  }
-  if (lang === 'js' && code.includes('bubbleSort')) {
-    stdout.push('原数组: [ 64, 34, 25, 12, 22, 11, 90 ]')
-    stdout.push('排序后: [ 11, 12, 22, 25, 34, 64, 90 ]')
-    stdout.push('查找22的索引: 2')
-    return { stdout: stdout.join('\n'), stderr: '', exitCode: 0 }
-  }
-  if (lang === 'cpp' && code.includes('ListNode')) {
-    stdout.push('链表: 1 -> 2 -> 3 -> 4 -> 5')
-    stdout.push('程序运行成功!')
-    return { stdout: stdout.join('\n'), stderr: '', exitCode: 0 }
-  }
-  if (lang === 'java' && code.includes('Student')) {
-    stdout.push('班级学生列表:')
-    stdout.push('学生 #1: 张三 - 成绩: 92.5')
-    stdout.push('学生 #2: 李四 - 成绩: 88.0')
-    stdout.push('学生 #3: 王五 - 成绩: 95.3')
-    stdout.push('')
-    stdout.push('班级平均分: 91.93')
-    return { stdout: stdout.join('\n'), stderr: '', exitCode: 0 }
-  }
-  if (lang === 'go' && code.includes('worker')) {
-    const order = [[1, 1], [2, 1], [3, 1], [1, 2], [2, 2], [3, 2], [1, 3], [2, 3], [3, 3], [1, 4], [2, 4], [3, 4], [1, 5], [2, 5], [3, 5]]
-    for (const [w, j] of order) {
-      stdout.push(`Worker ${w} 开始任务 ${j}`)
-      stdout.push(`Worker ${w} 完成任务 ${j}`)
-    }
-    stdout.push('\n结果收集:')
-    for (let r of [2, 4, 6, 8, 10]) stdout.push(`-> ${r}`)
-    stdout.push('所有任务完成!')
-    return { stdout: stdout.join('\n'), stderr: '', exitCode: 0 }
-  }
-  if (lang === 'cs' && code.includes('Product')) {
-    stdout.push('=== 产品列表 ===')
-    stdout.push('笔记本电脑     ¥  5999 [电子]')
-    stdout.push('4K显示器      ¥  2499 [电子]')
-    stdout.push('')
-    stdout.push('=== 各类别均价 ===')
-    stdout.push(`电子: ¥${((5999 + 2499) / 2).toFixed(2)}`)
-    stdout.push(`配件: ¥${((399 + 199 + 499) / 3).toFixed(2)}`)
-    stdout.push('')
-    stdout.push('数据处理完成!')
-    return { stdout: stdout.join('\n'), stderr: '', exitCode: 0 }
-  }
-  // 默认：尝试简易解析 print/console.log/cout
-  try {
-    if (lang === 'py') {
-      const re = /print\((['"])(.*?)\1\)/g
-      let m
-      while ((m = re.exec(code)) !== null) stdout.push(m[2])
-    } else if (lang === 'js') {
-      const re = /console\.log\((['"])(.*?)\1\)/g
-      let m
-      while ((m = re.exec(code)) !== null) stdout.push(m[2])
-    }
-    if (stdout.length === 0 && /[a-zA-Z_][a-zA-Z0-9_]*\s*\(/.test(code)) {
-      return { stdout: '', stderr: '', exitCode: 0 }
-    }
-  } catch { /* skip */ }
-  return { stdout: stdout.join('\n'), stderr: stderr.join('\n'), exitCode: stderr.length ? 1 : 0 }
-}
-
 // ============== AI 助教面板 ==============
 function AIPanel({ code, lang, standalone }: { code?: string; lang?: LangKey; standalone?: boolean }) {
   const getWelcomeMsg = (m: string) => {
@@ -1350,6 +1292,11 @@ function AIPanel({ code, lang, standalone }: { code?: string; lang?: LangKey; st
   const switchMode = (newMode: 'normal' | 'deep' | 'socratic') => {
     setMode(newMode)
     localStorage.setItem('yicode_ai_mode', newMode)
+  }
+
+  const clearChat = () => {
+    setMessages([{ role: 'assistant', text: getWelcomeMsg(mode) }])
+    setInput('')
   }
 
   const scrollRef = (el: HTMLDivElement | null) => {
@@ -1434,7 +1381,7 @@ function AIPanel({ code, lang, standalone }: { code?: string; lang?: LangKey; st
               <i className={`fas ${modeInfo[m].icon}`} style={{ fontSize: '14px' }}></i>
             </button>
           ))}
-          <button className="icon-btn" title="清空对话" onClick={() => setMessages([messages[0]])}>
+          <button className="icon-btn" title="清空对话" onClick={clearChat}>
             <i className="fas fa-trash-alt"></i>
           </button>
         </div>
@@ -1510,392 +1457,6 @@ function AIPanel({ code, lang, standalone }: { code?: string; lang?: LangKey; st
   )
 }
 
-// ============== 本地 AI 回复库（离线可用） ==============
-function buildLocalAIReply(msg: string, code: string, lang: LangKey): AIMessage {
-  const lower = msg.toLowerCase()
-  // 问题检测
-  if (lower.includes('检查') || lower.includes('问题') || lower.includes('错误') || lower.includes('bug')) {
-    const issues = detectIssues(code, lang)
-    if (issues.length === 0) {
-      return {
-        role: 'assistant',
-        text: `🔍 **代码检查完成！**\n\n我用 **静态分析引擎** 扫描了你的代码，当前没有检测到严重的语法错误或逻辑问题。👍\n\n不过可以注意以下提升点：`,
-        issues: [
-          { type: 'info' as const, title: '增加类型注解', body: `建议为函数参数和返回值增加类型提示，可让代码更易读并减少 bug。`, fix: `例如: def fibonacci(n: int) -> list[int]:` },
-          { type: 'info' as const, title: '补充单元测试', body: `建议配套编写 pytest / JUnit 测试，保证修改代码后不破坏旧逻辑。`, fix: `测试覆盖率建议 >= 80%` },
-        ],
-      }
-    }
-    return {
-      role: 'assistant',
-      text: `🔍 **代码检查发现 ${issues.length} 个问题：**\n\n请查看下方卡片，点击「修复建议」可查看解决方案。如果还有疑问，请随时问我！`,
-      issues,
-    }
-  }
-  if (lower.includes('优化') || lower.includes('改进') || lower.includes('更好')) {
-    return {
-      role: 'assistant',
-      text: `💡 **代码优化建议：**\n\n针对你当前的实现，我有以下 3 条具体的优化建议：`,
-      issues: [
-        { type: 'warning' as const, title: '时间复杂度可优化', body: '当前实现使用了双重循环，时间复杂度为 O(n²)，对于大数据量性能较差。', fix: '可尝试使用哈希表（字典）将查询优化到 O(1)，整体复杂度降为 O(n)。' },
-        { type: 'warning' as const, title: '缺少异常处理', body: '关键函数未处理边界输入（空值、负数、超大数值），可能导致未预期崩溃。', fix: '增加 try-catch / if-else 防御式判断，对非法输入给出友好提示。' },
-        { type: 'info' as const, title: '代码风格', body: '部分命名可读性不足，且缺少函数级文档注释，团队协作时成本较高。', fix: '遵循 PEP8 / Google Style Guide，为函数添加 docstring 说明功能、参数、返回值。' },
-      ],
-    }
-  }
-  if (lower.includes('解释') || lower.includes('什么') || lower.includes('讲解') || lower.includes('流程')) {
-    return {
-      role: 'assistant',
-      text: `📚 **代码逻辑讲解：**\n\n让我一步步带你理解这段代码的执行流程：\n\n1. **函数定义阶段**：程序首先读取函数定义（如 fibonacci / bubbleSort 等），此时不执行函数体，只是把签名注册到命名空间。\n\n2. **入口调用阶段**：到达 main 部分时，程序开始依次执行语句，例如调用函数、打印输出。\n\n3. **核心循环阶段**：进入 for / while 循环，根据条件重复执行语句块；这是算法真正发挥作用的地方。\n\n4. **结果返回阶段**：函数执行完毕，把结果返回给调用者，由 print 输出到控制台。\n\n💡 **建议**：点击左侧「代码流程图」标签，可可视化整个执行过程！`,
-    }
-  }
-  if (lower.includes('递归')) {
-    return {
-      role: 'assistant',
-      text: `📚 **什么是递归？**\n\n**递归（Recursion）** 就是「函数自己调用自己」的编程技巧。就像俄罗斯套娃：打开一个娃娃，里面还有个同款娃娃，直到最小的那个（基线条件）为止。\n\n递归必须包含两个核心要素：\n\n• **基线条件 (Base Case)**：不再递归、直接返回答案的边界情况，防止无限循环。\n• **递归条件 (Recursive Case)**：把大问题分解成「更小的同类问题」，调用自身解决。\n\n**🌰 举个栗子：计算阶乘 n!**\n\n\`\`\`python\ndef factorial(n):\n    if n <= 1:          # 基线条件\n        return 1\n    return n * factorial(n - 1)  # 递归：n! = n × (n-1)!\n\`\`\`\n\n执行 factorial(5) = 5 × 4 × 3 × 2 × 1 = 120 ✅`,
-    }
-  }
-  if (lower.includes('路线') || lower.includes('零基础') || lower.includes('学习计划')) {
-    return {
-      role: 'assistant',
-      text: `🚀 **Python 零基础学习路线（5个核心阶段）：**\n\n**① 语法基础（1-2 周）**\n• 变量、数据类型（int/float/str/list/dict）\n• 条件判断 if/else、循环 for/while\n• 函数定义与参数\n\n**② 进阶特性（2-3 周）**\n• 面向对象：class、继承、多态\n• 文件读写、异常处理 try/except\n• 模块与包 import\n\n**③ 算法与数据结构（3-4 周）** ⭐重中之重\n• 数组、链表、栈、队列、哈希表\n• 排序（冒泡/快排/归并）、搜索（二分）\n• 时间复杂度 O() 分析\n\n**④ 常用库实践（2-3 周）**\n• requests (网络) + BeautifulSoup (爬虫)\n• pandas/numpy (数据分析)\n• Flask/FastAPI (后端开发)\n\n**⑤ 项目实战（持续进行）**\n• 个人博客系统、爬虫、命令行工具、GUI 桌面应用\n• 建议加入 YiCode 「协作频道」组队开发！\n\n加油 💪 有具体问题随时问我～`,
-    }
-  }
-  if (lower.includes('考点') || lower.includes('复习') || lower.includes('期末') || lower.includes('考试')) {
-    return {
-      role: 'assistant',
-      text: `📝 **「数据结构与算法」期末考试 10 大高频考点：**\n\n**数据结构部分：**\n1. 线性表（顺序表 vs 链表）的插入删除查找效率对比\n2. 栈（Stack）「后进先出」应用：括号匹配、表达式求值\n3. 队列（Queue）「先进先出」应用：广度优先搜索 BFS\n4. 二叉树：前序/中序/后序/层序遍历、平衡树 AVL\n5. 哈希表：冲突解决（链地址法/开放寻址法）、装载因子\n\n**算法部分：**\n6. 排序算法：冒泡/选择/插入/快排/归并/堆排 → 时间/空间复杂度、稳定性\n7. 查找：二分查找（必须手写！）、哈希查找\n8. 图论：DFS/BFS 遍历、最短路径 Dijkstra\n9. 动态规划 DP：背包问题、最长子序列 LCS、状态转移方程\n10. 贪心思想：活动选择、哈夫曼编码\n\n💡 **建议**：在 YiCode「代码实验室」里对每个考点手写 3 遍，并画「流程图」验证思路！祝你考试顺利 🎯`,
-    }
-  }
-  if (lower.includes('竞赛') || lower.includes('刷题') || lower.includes('acm') || lower.includes('ac')) {
-    return {
-      role: 'assistant',
-      text: `🏆 **ACM/蓝桥杯 竞赛刷题计划建议：**\n\n**第一阶段：夯实基础 (4-6 周)**\n• 语言：C++（首选，STL 强大）/ Python / Java 任选一种打透\n• 每日 2-3 题：Luogu / 洛谷入门区 + LeetCode Easy\n• 重点：输入输出、字符串处理、STL(vector/map/set/queue/stack)\n\n**第二阶段：专题突破 (8-10 周)**\n按专题逐个攻克，每个专题至少 10 题：\n• 二分/双指针 · 排序与贪心 · DFS/BFS 搜索\n• DP (线性/区间/树形/状态压缩) · 并查集 · 最短路\n• 最小生成树 · 树链剖分 · 数论 (GCD/快速幂/筛法)\n\n**第三阶段：模拟赛 (4 周)**\n• 每周参加 Codeforces Div.3 / Div.2 / AtCoder Beginner\n• 赛后必须「补题」：独立写出未通过的题目 + 写题解\n• 加入 YiCode 「协作频道」组队交流，互相 Review 代码\n\n**🎯 每日节奏：**\n• 上午 1h 学习/复习算法模板\n• 下午 2h 集中刷题\n• 晚上 1h 写题解 + 看同学代码学习\n\n坚持 3 个月，省赛/校赛拿奖完全没问题！加油 🌟`,
-    }
-  }
-  // 默认
-  return {
-    role: 'assistant',
-    text: `✨ **已收到你的问题！**\n\n我正在分析你的提问，这里是一些通用建议：\n\n• 如果是**代码报错**，请把完整的错误信息和代码一起发给我，我可以精准定位。\n• 如果是**不懂的知识点**，可以问我「解释 XX」「举个例子说明 XX」。\n• 如果是**代码优化需求**，点击快捷操作「优化代码建议」可获得更详细的反馈。\n\n想让我帮你做什么？可以直接点击上方的快捷按钮，或继续向我描述你的目标～`,
-  }
-}
-
-// ============== 简单的静态代码问题检测 ==============
-function detectIssues(code: string, lang: LangKey): NonNullable<AIMessage['issues']> {
-  const issues: NonNullable<AIMessage['issues']> = []
-  const lines = code.split('\n')
-
-  if (lang === 'py') {
-    // 缩进问题：tab/space 混用
-    const hasTab = lines.some(l => l.startsWith('\t'))
-    const hasSpace = lines.some(l => /^    +/.test(l))
-    if (hasTab && hasSpace) {
-      issues.push({ type: 'error', title: '缩进混用 Tab / Space', body: '检测到代码同时使用了 Tab 和空格缩进，Python 对缩进敏感，会抛出 IndentationError。', fix: '请统一使用 4 空格缩进（绝大多数编辑器可设置 Tab 自动转空格）。' })
-    }
-    // print 括号 (Python3 必须)
-    for (let i = 0; i < lines.length; i++) {
-      if (/^\s*print\s+[^(]/.test(lines[i])) {
-        issues.push({ type: 'error', title: `第 ${i + 1} 行: print 缺少括号`, body: 'Python3 中 print 是函数，必须使用 print(...) 形式，否则会报 SyntaxError。', fix: '改为 print("要输出的内容")' })
-        break
-      }
-    }
-    // 变量未初始化直接使用（简单启发式）
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('==') && /if\s+\w+\s*==/.test(lines[i])) {
-        const m = lines[i].match(/if\s+(\w+)\s*==/)
-        if (m) {
-          const name = m[1]
-          const foundBefore = lines.slice(0, i).some(l => new RegExp(`${name}\\s*=`).test(l))
-          if (!foundBefore && !['True', 'False', 'None', 'self', '__name__'].includes(name)) {
-            issues.push({ type: 'warning', title: `第 ${i + 1} 行: 变量 ${name} 可能未定义`, body: `在条件判断中使用了 ${name}，但前面未检测到赋值，运行时可能 NameError。`, fix: `在前面为 ${name} 赋初始值，例如 ${name} = 0。` })
-            break
-          }
-        }
-      }
-    }
-  }
-  if (lang === 'cpp') {
-    // 缺少 return 0
-    if (code.includes('int main') && !/return\s+0/.test(code)) {
-      issues.push({ type: 'warning', title: 'main 函数缺少 return 0', body: '标准要求 main 函数返回 int，建议显式返回 0 表示正常退出。', fix: '在 main 末尾添加 return 0;' })
-    }
-    // 忘记 delete (new 过但没 delete)
-    const news = code.match(/new\s+\w+/g) || []
-    const deletes = (code.match(/delete\s+[\w[\]]+/g) || []).length
-    if (news.length > deletes) {
-      issues.push({ type: 'warning', title: `内存泄漏风险`, body: `检测到 ${news.length} 处 new，但 delete 只有 ${deletes} 处，可能有堆内存未释放。`, fix: '确保每个 new 对应一个 delete，或改用智能指针 std::unique_ptr。' })
-    }
-  }
-  if (lang === 'java') {
-    if (code.includes('public static void main') && !code.includes('String[] args')) {
-      issues.push({ type: 'error', title: 'main 方法签名错误', body: 'Java main 方法签名必须是 public static void main(String[] args)，否则无法启动。', fix: '补全参数 String[] args' })
-    }
-  }
-  if (lang === 'js') {
-    for (let i = 0; i < lines.length; i++) {
-      if (/==[^=]/.test(lines[i]) && !/===/.test(lines[i])) {
-        issues.push({ type: 'warning', title: `第 ${i + 1} 行: 使用 == 而非 ===`, body: 'JavaScript 的 == 会做隐式类型转换，容易产生难以调试的 bug (如 [] == false 为 true)。', fix: '始终使用 === 做严格相等比较。' })
-        break
-      }
-    }
-  }
-  // 通用：超大嵌套 for 循环
-  let maxNest = 0, nest = 0
-  for (const l of lines) {
-    const opens = (l.match(/\{|for\s*\(|while\s*\(/g) || []).length
-    const closes = (l.match(/\}/g) || []).length
-    nest = Math.max(0, nest + opens - closes)
-    maxNest = Math.max(maxNest, nest)
-  }
-  if (maxNest >= 4) {
-    issues.push({ type: 'info', title: `嵌套层级过深 (${maxNest} 层)`, body: '过深的嵌套会降低可读性、增加出错概率，建议使用「卫语句」或提取子函数降低层数。', fix: '提前 return / 抽出 helper function / 使用策略模式。' })
-  }
-  return issues
-}
-
-// ============== 代码流程图 ==============
-function FlowchartView() {
-  const [code, setCode] = useState<string>(`def check_age(age):
-    if age >= 18:
-        print("成年人")
-    else:
-        print("未成年人")
-    return age`)
-  const [mermaidCode, setMermaidCode] = useState<string>('')
-  const [genKey, setGenKey] = useState(0)
-  const [loading, setLoading] = useState(false)
-  const [stats, setStats] = useState<{ language: string; nodes: number; total_lines: number } | null>(null)
-  const [error, setError] = useState<string>('')
-
-  // 示例代码
-  const examples = [
-    { label: '年龄判断', icon: 'fa-user-check', code: `def check_age(age):
-    if age >= 18:
-        print("成年人")
-    else:
-        print("未成年人")
-    return age` },
-    { label: '循环求和', icon: 'fa-plus-circle', code: `def sum_n(n):
-    total = 0
-    for i in range(1, n+1):
-        total += i
-    return total` },
-    { label: '二分查找', icon: 'fa-search', code: `def binary_search(arr, target):
-    left, right = 0, len(arr) - 1
-    while left <= right:
-        mid = (left + right) // 2
-        if arr[mid] == target:
-            return mid
-        elif arr[mid] < target:
-            left = mid + 1
-        else:
-            right = mid - 1
-    return -1` },
-  ]
-
-  // 生成流程图
-  const generateFlowchart = async () => {
-    if (!code.trim()) return
-    setLoading(true)
-    setError('')
-    try {
-      const resp = await fetch(API_BASE + '/ai/flowchart', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, language: 'auto' }),
-      })
-      const data = await resp.json()
-      if (data.success && data.mermaid) {
-        setMermaidCode(data.mermaid)
-        setStats(data.stats)
-        setGenKey(k => k + 1)
-      } else {
-        setError(data.error || '生成失败')
-      }
-    } catch (e) {
-      setError('无法连接到服务器')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Mermaid 渲染
-  useEffect(() => {
-    if (!mermaidCode) return
-    // @ts-ignore
-    if (window.mermaid) {
-      // @ts-ignore
-      window.mermaid.initialize({
-        startOnLoad: false,
-        theme: 'dark',
-        themeVariables: {
-          primaryColor: '#1e293b',
-          primaryTextColor: '#f1f5f9',
-          primaryBorderColor: '#6366f1',
-          lineColor: '#818cf8',
-          secondaryColor: '#1e293b',
-          tertiaryColor: '#0f172a',
-          fontFamily: 'Inter',
-        },
-        flowchart: { curve: 'basis', htmlLabels: true },
-      })
-    }
-    const id = 'mermaid-' + Date.now()
-    const t = setTimeout(async () => {
-      try {
-        // @ts-ignore
-        if (window.mermaid) {
-          const el = document.getElementById('mermaid-canvas')
-          if (el) {
-            // @ts-ignore
-            const { svg } = await window.mermaid.render(id, mermaidCode)
-            el.innerHTML = svg
-          }
-        }
-      } catch (e) {
-        console.error('Mermaid render failed', e)
-      }
-    }, 100)
-    return () => clearTimeout(t)
-  }, [mermaidCode, genKey])
-
-  // 首次加载自动生成
-  useEffect(() => {
-    generateFlowchart()
-  }, [])
-
-  return (
-    <div className="fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div className="flowchart-layout">
-        {/* 左侧：流程图画布 */}
-        <div className="flowchart-pane">
-          <div className="flowchart-tools">
-            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginRight: '4px' }}>
-              <i className="fas fa-project-diagram" style={{ color: 'var(--primary-light)', marginRight: '6px' }}></i>
-              代码流程图
-            </span>
-            <div className="tool-chip" onClick={() => setGenKey(k => k + 1)} style={{ marginLeft: 'auto' }}>
-              <i className="fas fa-sync-alt"></i> 重新渲染
-            </div>
-            <div className="tool-chip" onClick={() => {
-              const el = document.getElementById('mermaid-canvas')
-              if (el) {
-                const svg = el.querySelector('svg')
-                if (svg) {
-                  const blob = new Blob([svg.outerHTML], { type: 'image/svg+xml' })
-                  const a = document.createElement('a')
-                  a.href = URL.createObjectURL(blob)
-                  a.download = 'flowchart.svg'
-                  a.click()
-                }
-              }
-            }}>
-              <i className="fas fa-download"></i> 导出 SVG
-            </div>
-          </div>
-          <div className="flowchart-canvas">
-            <div
-              id="mermaid-canvas"
-              style={{
-                width: '100%',
-                background: 'var(--bg-card)',
-                borderRadius: '16px',
-                padding: '30px',
-                border: '1px solid var(--border)',
-                minHeight: '400px',
-                overflow: 'auto',
-              }}
-            >
-              {loading ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '300px' }}>
-                  <div className="shimmer" style={{ width: '80%', height: '300px', borderRadius: '12px' }}></div>
-                </div>
-              ) : !mermaidCode ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '300px', color: 'var(--text-muted)', flexDirection: 'column', gap: '12px' }}>
-                  <i className="fas fa-code" style={{ fontSize: '48px', opacity: 0.3 }}></i>
-                  <span style={{ fontSize: '14px' }}>输入代码后点击「生成流程图」</span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        {/* 右侧：代码输入 + 说明 */}
-        <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px' }}>
-          <div>
-            <div className="panel-title" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span><i className="fas fa-code"></i> 输入代码</span>
-              {stats && (
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>
-                  {stats.language.toUpperCase()} | {stats.nodes} 节点 | {stats.total_lines} 行
-                </span>
-              )}
-            </div>
-            <textarea
-              className="code-textarea"
-              value={code}
-              onChange={e => setCode(e.target.value)}
-              spellCheck={false}
-              style={{ height: '200px', fontSize: '13px' }}
-            />
-          </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={generateFlowchart} disabled={loading}>
-              <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-magic'}`}></i> {loading ? '分析中...' : '生成流程图'}
-            </button>
-            <button className="btn btn-secondary" onClick={() => { setCode(''); setMermaidCode(''); setStats(null) }}>
-              <i className="fas fa-eraser"></i> 清空
-            </button>
-          </div>
-          {error && (
-            <div style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', fontSize: '12px', color: '#f87171' }}>
-              <i className="fas fa-exclamation-triangle"></i> {error}
-            </div>
-          )}
-
-          {/* 示例代码快捷加载 */}
-          <div>
-            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-              <i className="fas fa-bolt" style={{ color: 'var(--warning)' }}></i> 示例代码
-            </div>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              {examples.map((ex, i) => (
-                <div
-                  key={i}
-                  className="tool-chip"
-                  style={{ fontSize: '11px', padding: '5px 10px' }}
-                  onClick={() => { setCode(ex.code); }}
-                >
-                  <i className={`fas ${ex.icon}`}></i> {ex.label}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* 图例 */}
-          <div style={{
-            padding: '12px',
-            background: 'rgba(99, 102, 241, 0.08)',
-            border: '1px solid rgba(99, 102, 241, 0.25)',
-            borderRadius: '10px',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-              <i className="fas fa-lightbulb" style={{ color: 'var(--primary-light)' }}></i>
-              <strong style={{ fontSize: '12px' }}>图例</strong>
-            </div>
-            <div style={{ fontSize: '11px', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
-              • 圆角框 = <strong style={{ color: 'var(--success)' }}>开始 / 结束</strong><br />
-              • 矩形 = 普通操作 / 赋值<br />
-              • 菱形 = <strong style={{ color: 'var(--warning)' }}>条件判断 / 循环</strong><br />
-              • 箭头标有「是/否」= 分支方向
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ============== 协作频道 ==============
 type CollabRole = 'writer' | 'reviewer' | 'obs'
 interface CollabMember {
@@ -1930,10 +1491,10 @@ const COLLAB_ENTRY_INPUT = {
   fontFamily: 'inherit',
 }
 
-function CollabChannel({ username }: { username?: string }) {
+function CollabChannel({ username, token }: { username?: string; token?: string }) {
   const [view, setView] = useState<'entry' | 'room'>('entry')
   const [mode, setMode] = useState<'create' | 'join'>('create')
-  const [name, setName] = useState(username || '')
+  const name = username || ''
   const [joinCode, setJoinCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -1961,6 +1522,15 @@ function CollabChannel({ username }: { username?: string }) {
     const used = new Set(list.map(m => m.color))
     for (const c of COLLAB_AVATAR_COLORS) if (!used.has(c)) return c
     return COLLAB_AVATAR_COLORS[Math.abs(n.length) % COLLAB_AVATAR_COLORS.length]
+  }
+  const authHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    return headers
+  }
+  const withToken = (url: string): string => {
+    const sep = url.includes('?') ? '&' : '?'
+    return `${url}${sep}token=${encodeURIComponent(token || '')}`
   }
   const sendWS = (msg: Record<string, unknown>) => {
     const ws = wsRef.current
@@ -2037,7 +1607,7 @@ function CollabChannel({ username }: { username?: string }) {
           setLanIp(info.lanIp || ''); setShareUrl(info.shareUrl || '')
           setMyRole(info.myName === info.host ? 'writer' : 'obs')
           setView('room')
-          connectRoom(info.wsUrl, info.myName, info.myColor || 'a', info.host || '')
+          connectRoom(info.wsUrl, username || info.myName, info.myColor || 'a', info.host || '')
         }
       }
     } catch { /* ignore */ }
@@ -2050,7 +1620,7 @@ function CollabChannel({ username }: { username?: string }) {
     setErr('')
     let everOpen = false
     try {
-      const ws = new WebSocket(wsUrl)
+      const ws = new WebSocket(withToken(wsUrl))
       wsRef.current = ws
       ws.onopen = () => {
         everOpen = true
@@ -2130,15 +1700,16 @@ function CollabChannel({ username }: { username?: string }) {
     }
   }
   const createRoom = async () => {
-    const n = name.trim()
+    const n = (username || name).trim()
     if (!n) { setErr('请输入昵称'); return }
     setErr(''); setBusy(true)
     try {
       const r = await fetch(API_BASE + '/rooms', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ host_name: n, language: 'py' }),
       })
+      if (r.status === 401 || r.status === 403) { setErr('登录已过期，请重新登录后再创建房间'); return }
       if (!r.ok) throw new Error('HTTP ' + r.status)
       setCreated(await r.json())
     } catch (e) {
@@ -2150,7 +1721,7 @@ function CollabChannel({ username }: { username?: string }) {
   }
   const enterCreated = () => {
     if (!created) return
-    const n = name.trim()
+    const n = (username || name).trim()
     const color = pickColor(n, [])
     const wsUrl = created.ws_url || (WS_BASE + '/ws/room/' + created.room_code)
     setMyName(n); setMyColor(color); setMyRole('writer')
@@ -2160,13 +1731,14 @@ function CollabChannel({ username }: { username?: string }) {
     connectRoom(wsUrl, n, color, n)
   }
   const joinRoom = async () => {
-    const n = name.trim()
+    const n = (username || name).trim()
     const c = joinCode.trim()
     if (!n) { setErr('请输入昵称'); return }
     if (c.length !== 6) { setErr('请输入 6 位数字房间码'); return }
     setErr(''); setBusy(true)
     try {
-      const r = await fetch(API_BASE + '/rooms/' + c)
+      const r = await fetch(API_BASE + '/rooms/' + c, { headers: authHeaders() })
+      if (r.status === 401 || r.status === 403) { setErr('登录已过期，请重新登录后再加入房间'); return }
       if (!r.ok) { setErr('房间 ' + c + ' 不存在或已关闭'); return }
       const d = await r.json()
       const list = (d.members || []) as CollabMember[]
@@ -2211,8 +1783,8 @@ function CollabChannel({ username }: { username?: string }) {
 
           {mode === 'create' && !created && (
             <>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>昵称</div>
-              <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && createRoom()} placeholder="输入你的昵称" style={COLLAB_ENTRY_INPUT} />
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>登录账号</div>
+              <input value={username || name} readOnly onKeyDown={e => e.key === 'Enter' && createRoom()} placeholder="登录账号" style={COLLAB_ENTRY_INPUT} />
               <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 14 }} onClick={createRoom} disabled={busy}>
                 <i className="fas fa-magic"></i> {busy ? '创建中...' : '创建房间'}
               </button>
@@ -2249,8 +1821,8 @@ function CollabChannel({ username }: { username?: string }) {
             <>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>房间码（6 位数字）</div>
               <input value={joinCode} onChange={e => setJoinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} onKeyDown={e => e.key === 'Enter' && joinRoom()} placeholder="例如 123456" inputMode="numeric" maxLength={6} style={{ ...COLLAB_ENTRY_INPUT, letterSpacing: 4, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }} />
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '14px 0 6px' }}>昵称</div>
-              <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && joinRoom()} placeholder="输入你的昵称" style={COLLAB_ENTRY_INPUT} />
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '14px 0 6px' }}>登录账号</div>
+              <input value={username || name} readOnly onKeyDown={e => e.key === 'Enter' && joinRoom()} placeholder="登录账号" style={COLLAB_ENTRY_INPUT} />
               <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 14 }} onClick={joinRoom} disabled={busy}>
                 <i className="fas fa-sign-in-alt"></i> {busy ? '加入中...' : '加入房间'}
               </button>
@@ -3194,536 +2766,3 @@ function ClassroomView({ setPage }: { setPage: (p: PageKey) => void }) {
 }
 
 // ============== 环境检查 ==============
-interface RuntimeInfo {
-  name: string
-  available: boolean
-  version: string | null
-  path: string | null
-  error?: string
-}
-interface SelfTestResult {
-  ok?: boolean
-  stdout?: string
-  stderr?: string
-  elapsed?: number
-  skipped?: boolean
-  reason?: string
-  error?: string
-}
-
-function EnvCheck() {
-  const [runtimes, setRuntimes] = useState<Record<string, RuntimeInfo>>({})
-  const [loading, setLoading] = useState(true)
-  const [selfTest, setSelfTest] = useState<Record<string, SelfTestResult> | null>(null)
-  const [testing, setTesting] = useState(false)
-  const [installStatus, setInstallStatus] = useState<Record<string, { status: string; progress: string }>>({})
-
-  const fetchRuntimes = async () => {
-    setLoading(true)
-    try {
-      const r = await fetch(API_BASE + '/runtimes')
-      const j = await r.json()
-      setRuntimes(j.runtimes || j.details || {})
-    } catch {
-      setRuntimes({})
-    }
-    setLoading(false)
-  }
-
-  useEffect(() => { fetchRuntimes() }, [])
-
-  const runSelfTest = async () => {
-    setTesting(true)
-    setSelfTest(null)
-    try {
-      const r = await fetch(API_BASE + '/self-test', { method: 'POST' })
-      const j = await r.json()
-      setSelfTest(j.per_language || {})
-    } catch {
-      setSelfTest({})
-    }
-    setTesting(false)
-  }
-
-  // 一键安装环境（java/cpp）
-  const installEnv = async (env: string) => {
-    // 支持自动安装的环境
-    const installableEnvs: Record<string, string> = {
-      java: 'JDK 21',
-      cpp: 'MinGW C++',
-    }
-    if (!installableEnvs[env]) return
-
-    setInstallStatus(prev => ({ ...prev, [env]: { status: 'installing', progress: '开始下载...' } }))
-
-    try {
-      const r = await fetch(`API_BASE/install/${env}`, { method: 'POST' })
-      const data = await r.json()
-      if (data.task_id) {
-        // 轮询安装状态
-        const poll = async () => {
-          try {
-            const sr = await fetch(`API_BASE/install/status/${data.task_id}`)
-            const sd = await sr.json()
-            setInstallStatus(prev => ({ ...prev, [env]: { status: sd.status, progress: sd.progress || sd.status } }))
-
-            if (sd.status === 'running') {
-              setTimeout(poll, 2000)
-            } else if (sd.status === 'success') {
-              // 安装成功后刷新环境检测
-              setTimeout(() => { fetchRuntimes() }, 1000)
-            }
-          } catch {
-            setTimeout(poll, 3000)
-          }
-        }
-        setTimeout(poll, 1000)
-      }
-    } catch (e) {
-      setInstallStatus(prev => ({ ...prev, [env]: { status: 'error', progress: '请求失败' } }))
-    }
-  }
-
-  const langIcons: Record<string, string> = {
-    py: 'fa-python', js: 'fa-js-square', cpp: 'fa-cplusplus',
-    java: 'fa-java', go: 'fa-golang', cs: 'fa-hashtag',
-  }
-  const langColors: Record<string, string> = {
-    py: '#3776ab', js: '#f7df1e', cpp: '#00599c',
-    java: '#ed8b00', go: '#00add8', cs: '#178600',
-  }
-
-  const installGuide: Record<string, string> = {
-    py: '已预装。如需更新：python.org/downloads 或 winget install Python.Python.3.13',
-    js: '已预装。如需更新：nodejs.org 或 winget install OpenJS.NodeJS.LTS',
-    cpp: '安装命令：winget install BrechtSanders.WinLibs.POSIX.UCRT（已自动执行）',
-    java: '安装命令：winget install EclipseAdoptium.Temurin.21.JDK',
-    go: '安装命令：winget install GoLang.Go',
-    cs: '安装命令：winget install Microsoft.DotNet.SDK.8',
-  }
-
-  const allEntries = Object.entries(runtimes)
-
-  return (
-    <div className="fade-in" style={{ padding: '24px', maxWidth: '1100px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '22px', fontWeight: 700, marginBottom: '8px' }}>
-          <i className="fas fa-stethoscope" style={{ marginRight: '10px', color: 'var(--primary-light)' }}></i>
-          运行环境检查
-        </h2>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
-          检测本地 6 种编程语言的编译器/解释器是否已安装就绪。点击「一键自测」验证每种语言能否真实编译并执行代码。
-        </p>
-      </div>
-
-      {/* 统计概览 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
-        <div className="stat-card" style={{ background: 'var(--bg-card)', borderLeft: '4px solid #10b981' }}>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: '#10b981' }}>
-            {allEntries.filter(([, r]) => r.available).length}
-          </div>
-          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>已就绪</div>
-        </div>
-        <div className="stat-card" style={{ background: 'var(--bg-card)', borderLeft: '4px solid #ef4444' }}>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: '#ef4444' }}>
-            {allEntries.filter(([, r]) => !r.available).length}
-          </div>
-          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>未安装</div>
-        </div>
-        <div className="stat-card" style={{ background: 'var(--bg-card)', borderLeft: '4px solid var(--primary)' }}>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--primary-light)' }}>
-            {allEntries.length || 6}
-          </div>
-          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>总支持语言</div>
-        </div>
-      </div>
-
-      {/* 一键自测按钮 */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
-        <button
-          className="btn btn-primary"
-          onClick={runSelfTest}
-          disabled={testing}
-          style={{ justifyContent: 'center' }}
-        >
-          <i className={`fas ${testing ? 'fa-spinner fa-spin' : 'fa-play-circle'}`}></i>
-          {testing ? '正在测试...' : '一键自测 (编译+执行 HelloWorld)'}
-        </button>
-        <button className="btn btn-secondary" onClick={fetchRuntimes} disabled={loading}>
-          <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-sync'}`}></i>
-          重新检测
-        </button>
-      </div>
-
-      {/* 语言环境卡片 - 纵向布局 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {allEntries.map(([key, info]) => (
-          <div key={key} style={{
-            padding: '18px', borderRadius: '12px',
-            border: `1px solid ${info.available ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
-            background: info.available
-              ? 'linear-gradient(135deg, rgba(16,185,129,0.06), rgba(15,23,42,0.6))'
-              : 'linear-gradient(135deg, rgba(239,68,68,0.06), rgba(15,23,42,0.6))',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
-              <div style={{
-                width: '40px', height: '40px', borderRadius: '10px',
-                background: langColors[key] || '#6366f1', color: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '18px',
-              }}>
-                <i className={`fab ${langIcons[key] || 'fa-code'}`}></i>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: '15px' }}>{info.name}</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{key.toUpperCase()}</div>
-              </div>
-              <div style={{
-                padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 700,
-                background: info.available ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)',
-                color: info.available ? '#10b981' : '#ef4444',
-              }}>
-                {info.available ? '✅ 就绪' : '❌ 未装'}
-              </div>
-            </div>
-            {info.version && (
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                <i className="fas fa-tag" style={{ marginRight: '6px' }}></i>{info.version}
-              </div>
-            )}
-            {info.path && (
-              <div style={{
-                fontSize: '11px', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace",
-                background: 'var(--bg-main)', padding: '4px 8px', borderRadius: '4px',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: '8px',
-                border: '1px solid var(--border)',
-              }}>
-                <i className="fas fa-folder-open" style={{ marginRight: '6px' }}></i>{info.path}
-              </div>
-            )}
-            {!info.available && (
-              <div style={{
-                fontSize: '12px', color: '#fbbf24', padding: '8px 10px',
-                background: 'rgba(251,191,36,0.1)', borderRadius: '6px', marginTop: '6px',
-              }}>
-                <i className="fas fa-wrench" style={{ marginRight: '6px' }}></i>
-                {installGuide[key] || '请安装对应编译器/解释器'}
-                {/* 一键安装按钮（仅 java/cpp） */}
-                {(key === 'java' || key === 'cpp') && (
-                  <button
-                    className="btn btn-primary"
-                    style={{ marginTop: '8px', width: '100%', justifyContent: 'center', fontSize: '13px', padding: '6px 12px' }}
-                    onClick={() => installEnv(key)}
-                    disabled={installStatus[key]?.status === 'running' || installStatus[key]?.status === 'installing'}
-                  >
-                    {installStatus[key]?.status === 'running' || installStatus[key]?.status === 'installing' ? (
-                      <>
-                        <i className="fas fa-spinner fa-spin"></i> {installStatus[key]?.progress || '安装中...'}
-                      </>
-                    ) : installStatus[key]?.status === 'success' ? (
-                      <>
-                        <i className="fas fa-check-circle"></i> 安装成功，请重新检测
-                      </>
-                    ) : installStatus[key]?.status === 'failed' || installStatus[key]?.status === 'error' ? (
-                      <>
-                        <i className="fas fa-exclamation-circle"></i> 安装失败，点击重试
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-download"></i> 一键安装（自动下载到项目目录）
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-            )}
-            {/* 自测结果 */}
-            {selfTest && selfTest[key] && (
-              <div style={{
-                marginTop: '10px', padding: '10px', borderRadius: '6px',
-                background: selfTest[key].ok ? 'rgba(16,185,129,0.08)' : selfTest[key].skipped ? 'rgba(251,191,36,0.08)' : 'rgba(239,68,68,0.08)',
-                fontSize: '12px',
-              }}>
-                {selfTest[key].skipped ? (
-                  <span style={{ color: '#fbbf24' }}>⚠️ 跳过 — {selfTest[key].reason}</span>
-                ) : selfTest[key].ok ? (
-                  <div>
-                    <span style={{ color: '#10b981', fontWeight: 700 }}>✅ 执行成功</span>
-                    <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>{selfTest[key].elapsed?.toFixed(2)}s</span>
-                    {selfTest[key].stdout && (
-                      <pre style={{ marginTop: '4px', fontSize: '11px', color: '#94a3b8', whiteSpace: 'pre-wrap' }}>
-                        {selfTest[key].stdout}
-                      </pre>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    <span style={{ color: '#ef4444', fontWeight: 700 }}>❌ 执行失败</span>
-                    {selfTest[key].stderr && (
-                      <pre style={{ marginTop: '4px', fontSize: '11px', color: '#f87171', whiteSpace: 'pre-wrap' }}>
-                        {selfTest[key].stderr}
-                      </pre>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {loading && (
-        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-          <i className="fas fa-spinner fa-spin" style={{ fontSize: '24px' }}></i>
-          <div style={{ marginTop: '10px' }}>正在检测运行环境...</div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-
-// ============== 管理面板组件 ==============
-function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
-  const [users, setUsers] = useState<Array<{
-    id: number; username: string; avatar: string; level: number; xp: number;
-    streak_days: number; role: string; target_id: string | null; created_at: string;
-    role_label: string;
-  }>>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [actionLoading, setActionLoading] = useState<number | null>(null)
-
-  const fetchUsers = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const resp = await fetch(`${API_BASE}/admin/users?operator_id=${currentUser.user_id}`)
-      const data = await resp.json()
-      if (resp.ok) {
-        setUsers(data.users || [])
-      } else {
-        setError(data.detail || '获取用户列表失败')
-      }
-    } catch (err) {
-      setError('网络错误，请确认后端已启动')
-    }
-    setLoading(false)
-  }
-
-  useEffect(() => { fetchUsers() }, [])
-
-  const setRole = async (userId: number, newRole: string) => {
-    if (userId === currentUser.user_id && currentUser.role === 'super_admin' && newRole !== 'super_admin') {
-      if (!confirm('确定要将自己的超级管理员身份移除吗？')) return
-    }
-    setActionLoading(userId)
-    try {
-      const resp = await fetch(`${API_BASE}/admin/users/${userId}/role?role=${newRole}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      const data = await resp.json()
-      if (resp.ok) {
-        await fetchUsers()
-      } else {
-        alert(data.detail || '操作失败')
-      }
-    } catch {
-      alert('网络错误')
-    }
-    setActionLoading(null)
-  }
-
-  const deleteUser = async (userId: number, username: string) => {
-    if (!confirm(`确定要删除用户 "${username}" 吗？此操作不可撤销。`)) return
-    setActionLoading(userId)
-    try {
-      const resp = await fetch(`${API_BASE}/admin/users/${userId}`, {
-        method: 'DELETE',
-      })
-      const data = await resp.json()
-      if (resp.ok) {
-        await fetchUsers()
-      } else {
-        alert(data.detail || '删除失败')
-      }
-    } catch {
-      alert('网络错误')
-    }
-    setActionLoading(null)
-  }
-
-  const roleBadge = (role: string, target_id: string | null) => {
-    const badges: Record<string, { bg: string; color: string; icon: string; label: string }> = {
-      super_admin: { bg: 'rgba(239,68,68,0.15)', color: '#ef4444', icon: 'fa-crown', label: '超级管理员' },
-      admin: { bg: 'rgba(99,102,241,0.15)', color: '#818cf8', icon: 'fa-shield-alt', label: '管理员' },
-      student: { bg: 'rgba(148,163,184,0.15)', color: '#94a3b8', icon: 'fa-user', label: '学生' },
-    }
-    const b = badges[role] || badges.student
-    return (
-      <span style={{
-        display: 'inline-flex', alignItems: 'center', gap: '4px',
-        padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600,
-        background: b.bg, color: b.color,
-      }}>
-        <i className={`fas ${b.icon}`}></i>
-        {b.label}
-        {target_id && <span style={{ marginLeft: '4px', fontFamily: 'monospace' }}>({target_id})</span>}
-      </span>
-    )
-  }
-
-  if (currentUser.role !== 'super_admin' && currentUser.role !== 'admin') {
-    return (
-      <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-        <i className="fas fa-lock" style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.3 }}></i>
-        <div style={{ fontSize: '16px' }}>需要管理员权限才能访问此页面</div>
-      </div>
-    )
-  }
-
-  return (
-    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-      {/* 页面标题 */}
-      <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '22px', fontWeight: 800, margin: 0 }}>
-          <i className="fas fa-shield-alt" style={{ marginRight: '10px', color: 'var(--primary-light)' }}></i>
-          管理面板
-        </h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '6px' }}>
-          {currentUser.role === 'super_admin' ? '超级管理员' : '管理员'} · ID: {currentUser.target_id || '-'}
-        </p>
-      </div>
-
-      {/* 用户管理 */}
-      <div className="panel">
-        <div className="panel-header">
-          <div className="panel-title">
-            <i className="fas fa-users"></i> 用户管理 ({users.length}人)
-          </div>
-          <button className="btn btn-secondary" onClick={fetchUsers} disabled={loading}>
-            <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-sync'}`}></i> 刷新
-          </button>
-        </div>
-
-        {error && (
-          <div style={{
-            padding: '12px 16px', margin: '16px', borderRadius: '8px',
-            background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '13px',
-          }}>
-            <i className="fas fa-exclamation-circle" style={{ marginRight: '8px' }}></i>{error}
-          </div>
-        )}
-
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-            <i className="fas fa-spinner fa-spin" style={{ fontSize: '24px' }}></i>
-            <div style={{ marginTop: '10px' }}>正在加载用户列表...</div>
-          </div>
-        ) : (
-          <div style={{ padding: '16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {users.map((u) => (
-                <div key={u.id} style={{
-                  padding: '16px', borderRadius: '12px',
-                  border: u.id === currentUser.user_id ? '2px solid var(--primary)' : '1px solid var(--border)',
-                  background: u.id === currentUser.user_id ? 'rgba(99,102,241,0.05)' : 'var(--bg-card)',
-                  display: 'flex', alignItems: 'center', gap: '16px',
-                  opacity: actionLoading === u.id ? 0.6 : 1,
-                  transition: 'var(--transition)',
-                }}>
-                  {/* 用户头像 */}
-                  <div style={{
-                    width: '44px', height: '44px', borderRadius: '12px',
-                    background: u.role === 'super_admin' ? 'linear-gradient(135deg, #ef4444, #f97316)' :
-                      u.role === 'admin' ? 'linear-gradient(135deg, #6366f1, #818cf8)' :
-                        'linear-gradient(135deg, #334155, #475569)',
-                    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '18px', fontWeight: 700, flexShrink: 0,
-                  }}>
-                    {u.avatar || u.username[0]}
-                  </div>
-
-                  {/* 用户信息 */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                      <span style={{ fontWeight: 700, fontSize: '15px' }}>{u.username}</span>
-                      {u.id === currentUser.user_id && (
-                        <span style={{ fontSize: '11px', color: 'var(--primary-light)', background: 'rgba(99,102,241,0.1)', padding: '2px 6px', borderRadius: '4px' }}>
-                          当前用户
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      <span><i className="fas fa-star" style={{ marginRight: '4px', color: '#fbbf24' }}></i>Lv.{u.level}</span>
-                      <span><i className="fas fa-bolt" style={{ marginRight: '4px', color: '#10b981' }}></i>{u.xp} XP</span>
-                      <span><i className="fas fa-fire" style={{ marginRight: '4px', color: '#f97316' }}></i>{u.streak_days}天连续</span>
-                      <span style={{ color: 'var(--text-muted)' }}>ID: {u.id}</span>
-                    </div>
-                  </div>
-
-                  {/* 角色标识 */}
-                  <div>{roleBadge(u.role, u.target_id)}</div>
-
-                  {/* 操作按钮 */}
-                  {u.role !== 'super_admin' && currentUser.role === 'super_admin' && (
-                    <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                      {u.role === 'student' ? (
-                        <button
-                          className="btn btn-primary"
-                          style={{ fontSize: '12px', padding: '6px 12px' }}
-                          onClick={() => setRole(u.id, 'admin')}
-                          disabled={actionLoading !== null}
-                        >
-                          <i className="fas fa-user-shield"></i> 设为管理员
-                        </button>
-                      ) : u.role === 'admin' ? (
-                        <button
-                          className="btn btn-secondary"
-                          style={{ fontSize: '12px', padding: '6px 12px' }}
-                          onClick={() => setRole(u.id, 'student')}
-                          disabled={actionLoading !== null}
-                        >
-                          <i className="fas fa-user"></i> 取消管理员
-                        </button>
-                      ) : null}
-                      {u.role !== 'super_admin' && (
-                        <button
-                          className="btn btn-secondary"
-                          style={{ fontSize: '12px', padding: '6px 12px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}
-                          onClick={() => deleteUser(u.id, u.username)}
-                          disabled={actionLoading !== null}
-                        >
-                          <i className="fas fa-trash"></i> 删除
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {actionLoading === u.id && (
-                    <i className="fas fa-spinner fa-spin" style={{ color: 'var(--primary-light)' }}></i>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* 统计信息 */}
-            <div style={{
-              marginTop: '20px', padding: '16px', borderRadius: '10px',
-              background: 'var(--bg-main)', display: 'flex', gap: '24px',
-              fontSize: '13px', color: 'var(--text-secondary)', border: '1px solid var(--border)',
-            }}>
-              <div><i className="fas fa-users" style={{ marginRight: '6px' }}></i>总用户: {users.length}</div>
-              <div><i className="fas fa-crown" style={{ marginRight: '6px', color: '#ef4444' }}></i>超管: {users.filter(u => u.role === 'super_admin').length}</div>
-              <div><i className="fas fa-shield-alt" style={{ marginRight: '6px', color: '#818cf8' }}></i>管理员: {users.filter(u => u.role === 'admin').length}</div>
-              <div><i className="fas fa-user" style={{ marginRight: '6px', color: '#94a3b8' }}></i>学生: {users.filter(u => u.role === 'student').length}</div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-
-

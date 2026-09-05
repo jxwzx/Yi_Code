@@ -3,6 +3,26 @@ import os, sys, ssl, time, traceback
 import urllib.request
 ssl._create_default_https_context = ssl._create_unverified_context
 
+# Windows 使用 MinGW-w64；macOS/Linux 使用系统自带 clang/g++
+if os.name != "nt":
+    import shutil
+    import subprocess
+
+    found = shutil.which("g++") or shutil.which("clang++")
+    if found:
+        r = subprocess.run([found, "--version"], capture_output=True, text=True, timeout=10)
+        first = (r.stdout or r.stderr).splitlines()[0] if (r.stdout or r.stderr) else "C++ compiler"
+        print(f"[SKIP] 系统已提供 C++ 编译器: {first}\n路径: {found}")
+        sys.exit(0)
+
+    if sys.platform == "darwin":
+        print("未检测到 g++/clang++，正在打开 Xcode Command Line Tools 安装窗口...")
+        subprocess.run(["/usr/bin/xcode-select", "--install"], check=False)
+        sys.exit(0)
+
+    print("请先安装系统 C++ 编译器 (g++ / clang++)")
+    sys.exit(1)
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT_7Z = os.path.join(ROOT, "mingw.7z")
 EXTRACT_TO = ROOT
