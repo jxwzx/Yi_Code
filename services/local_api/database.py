@@ -5,6 +5,9 @@
 """
 import sqlite3
 import hashlib
+import base64
+import secrets
+import threading
 import os
 from datetime import datetime
 from pathlib import Path
@@ -14,22 +17,74 @@ DB_PATH = str(Path(__file__).resolve().parents[2] / "data" / "yicode.db")
 
 
 def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    """使用带盐 PBKDF2 保存密码，替代原来的无盐 SHA-256。"""
+    iterations = 210_000
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return "pbkdf2_sha256${}${}${}".format(
+        iterations,
+        base64.urlsafe_b64encode(salt).decode("ascii"),
+        base64.urlsafe_b64encode(dk).decode("ascii"),
+    )
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    """校验密码；兼容旧版无盐 SHA-256 哈希，并在登录成功后由上层迁移。"""
+    if stored.startswith("pbkdf2_sha256$"):
+        try:
+            _, iter_text, salt_b64, hash_b64 = stored.split("$", 3)
+            iterations = int(iter_text)
+            salt = base64.urlsafe_b64decode(salt_b64.encode("ascii"))
+            expected = base64.urlsafe_b64decode(hash_b64.encode("ascii"))
+            actual = hashlib.pbkdf2_hmac(
+                "sha256", password.encode("utf-8"), salt, iterations
+            )
+            return secrets.compare_digest(actual, expected)
+        except Exception:
+            return False
+    return secrets.compare_digest(
+        stored,
+        hashlib.sha256(password.encode("utf-8")).hexdigest(),
+    )
 
 
 def get_db() -> sqlite3.Connection:
-    """获取数据库连接（行工厂为 dict）"""
+    """获取线程级复用的数据库连接（行工厂为 dict）"""
+    conn = getattr(_thread_local, "conn", None)
+    if conn is not None:
+        return conn
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    _thread_local.conn = conn
     return conn
+
+
+_thread_local = threading.local()
+
+
+def close_db():
+    """关闭并清空当前线程的连接（主要用于初始化阶段）。"""
+    conn = getattr(_thread_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        finally:
+            _thread_local.conn = None
 
 
 def init_db():
     """建表 + 填充初始数据"""
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            username      TEXT PRIMARY KEY,
+            fail_count    INTEGER NOT NULL DEFAULT 0,
+            locked_until  REAL
+        )
+    """)
 
     # ========== 建表 ==========
     cur.executescript("""
@@ -163,7 +218,7 @@ def init_db():
         _seed_activities(cur)
 
     conn.commit()
-    conn.close()
+    close_db()
 
 
 # ========== 初始数据填充 ==========
@@ -409,14 +464,12 @@ def query_all(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
     """执行 SELECT，返回 dict 列表"""
     conn = get_db()
     rows = conn.execute(sql, params).fetchall()
-    conn.close()
     return [dict(r) for r in rows]
 
 
 def query_one(sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
     conn = get_db()
     row = conn.execute(sql, params).fetchone()
-    conn.close()
     return dict(row) if row else None
 
 
@@ -426,7 +479,6 @@ def execute(sql: str, params: tuple = ()) -> int:
     cur = conn.execute(sql, params)
     conn.commit()
     rowid = cur.lastrowid
-    conn.close()
     return rowid
 
 def generate_target_id(role: str = "student") -> str:
@@ -437,17 +489,14 @@ def generate_target_id(role: str = "student") -> str:
     """
     if role == "super_admin":
         return "000"
-    
-    conn = get_db()
-    # 获取当前最大的 target_id（排除 000 超管）
-    row = conn.execute(
+
+    row = query_one(
         "SELECT target_id FROM users WHERE target_id IS NOT NULL AND target_id != '000' ORDER BY CAST(target_id AS INTEGER) DESC LIMIT 1"
-    ).fetchone()
-    conn.close()
+    )
     
-    if row and row[0]:
+    if row and row.get("target_id"):
         try:
-            next_num = int(row[0]) + 1
+            next_num = int(row["target_id"]) + 1
         except ValueError:
             next_num = 1
     else:
@@ -467,5 +516,3 @@ def verify_admin_permission(user_id: int) -> dict:
     if user["role"] not in ("admin", "super_admin"):
         return None
     return user
-
-

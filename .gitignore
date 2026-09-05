@@ -67,6 +67,7 @@ _tools/mingw64/
 _tools/llvm-mingw/
 _tools/jdk/
 _tools/go/
+_tools/dotnet/
 _tools/*.zip
 _tools/*.7z
 _tools/*.tar.gz
