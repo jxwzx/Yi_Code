@@ -22,7 +22,6 @@ import shutil
 import subprocess
 import random
 import socket
-from urllib.parse import parse_qs
 
 # ---------- 确保项目根目录在 sys.path 中 ----------
 ROOT = Path(__file__).resolve().parents[2]
@@ -100,9 +99,9 @@ def _get_lan_ip() -> str:
 # ============ 数据模型 ============
 class RunCodeRequest(BaseModel):
     language: str = Field(..., description="编程语言简写: py/js/cpp/java/go/cs")
-    code: str = Field(..., description="源代码内容")
-    stdin: Optional[str] = Field(None, description="标准输入内容")
-    timeout: Optional[int] = Field(15, description="超时时间(秒)")
+    code: str = Field(..., min_length=1, max_length=200_000, description="源代码内容")
+    stdin: Optional[str] = Field(None, max_length=10_000, description="标准输入内容")
+    timeout: Optional[int] = Field(15, ge=1, le=60, description="超时时间(秒)")
 
 
 class AIChatRequest(BaseModel):
@@ -166,49 +165,68 @@ async def get_runtime(language: str):
 
 # ============ 代码执行 ============
 @app.post("/run")
-async def run_code_endpoint(req: RunCodeRequest, background: BackgroundTasks):
-    """同步执行代码（简易接口，直接返回结果）"""
+def run_code_endpoint(req: RunCodeRequest, authorization: Optional[str] = Header(None)):
+    """执行用户代码，仅限已登录用户，并在线程池中运行。"""
+    user = _current_user(authorization)
+    uid = str(user["id"])
+    with _ACTIVE_RUNS_LOCK:
+        if _ACTIVE_RUNS.get(uid, 0) >= 1:
+            raise HTTPException(429, "已有代码正在运行，请等待当前运行结束后再试")
+        _ACTIVE_RUNS[uid] = _ACTIVE_RUNS.get(uid, 0) + 1
     task_id = f"task_{uuid.uuid4().hex[:10]}"
     try:
-        result = runtime.run_code(req.language, req.code, req.timeout or 15, req.stdin)
-    except Exception as e:
-        result = {
-            "success": False,
-            "error": f"服务端执行异常: {type(e).__name__}: {e}",
+        try:
+            result = runtime.run_code(req.language, req.code, req.timeout or 15, req.stdin)
+        except Exception as e:
+            result = {
+                "success": False,
+                "error": f"服务端执行异常: {type(e).__name__}: {e}",
+            }
+        result["task_id"] = task_id
+        tasks_db[task_id] = {
+            "task_id": task_id,
+            "language": req.language,
+            "code_preview": req.code[:200],
+            "status": "done",
+            "created_at": datetime.now().isoformat(),
+            "owner_user_id": user["id"],
+            "owner_username": user["username"],
+            **result,
         }
-    result["task_id"] = task_id
-    # 持久化到任务列表
-    tasks_db[task_id] = {
-        "task_id": task_id,
-        "language": req.language,
-        "code_preview": req.code[:200],
-        "status": "done",
-        "created_at": datetime.now().isoformat(),
-        **result,
-    }
-    # 限制最多 100 条历史
-    if len(tasks_db) > 100:
-        oldest = next(iter(tasks_db))
-        del tasks_db[oldest]
-    return result
+        if len(tasks_db) > 200:
+            tasks_db.pop(next(iter(tasks_db)), None)
+        return result
+    finally:
+        with _ACTIVE_RUNS_LOCK:
+            _ACTIVE_RUNS[uid] = max(0, _ACTIVE_RUNS.get(uid, 1) - 1)
+            if _ACTIVE_RUNS[uid] == 0:
+                _ACTIVE_RUNS.pop(uid, None)
 
 
 @app.get("/tasks")
-async def list_tasks(limit: int = 20):
-    items = sorted(tasks_db.values(), key=lambda t: t.get("created_at", ""), reverse=True)[:limit]
+def list_tasks(limit: int = 20, authorization: Optional[str] = Header(None)):
+    user = _current_user(authorization)
+    items = sorted(
+        (t for t in tasks_db.values() if t.get("owner_user_id") == user["id"]),
+        key=lambda t: t.get("created_at", ""),
+        reverse=True,
+    )[:limit]
     return {"count": len(items), "tasks": items}
 
 
 @app.get("/tasks/{task_id}")
-async def get_task(task_id: str):
-    if task_id not in tasks_db:
+def get_task(task_id: str, authorization: Optional[str] = Header(None)):
+    user = _current_user(authorization)
+    task = tasks_db.get(task_id)
+    if not task or task.get("owner_user_id") != user["id"]:
         raise HTTPException(404, f"任务不存在: {task_id}")
-    return tasks_db[task_id]
+    return task
 
 
 # ============ 快速自测：一键检测并验证全部语言 ============
 @app.post("/self-test")
-async def self_test():
+def self_test(authorization: Optional[str] = Header(None)):
+    _current_user(authorization)
     samples = {
         "py": "print('Hello from Python!')",
         "js": "console.log('Hello from JavaScript!');",
@@ -239,6 +257,9 @@ async def self_test():
 
 # ============ 环境自动安装 ============
 import threading
+
+_ACTIVE_RUNS_LOCK = threading.Lock()
+_ACTIVE_RUNS: Dict[str, int] = {}
 
 # 安装任务状态跟踪
 _install_tasks: Dict[str, Dict[str, Any]] = {}
@@ -272,8 +293,9 @@ INSTALL_CONFIG = {
 }
 
 @app.post("/install/{env}")
-async def install_env(env: str, background_tasks: BackgroundTasks):
+async def install_env(env: str, background_tasks: BackgroundTasks, authorization: Optional[str] = Header(None)):
     """触发环境自动安装（后台执行）"""
+    _require_admin(authorization)
     env = env.lower()
     if env not in INSTALL_CONFIG:
         raise HTTPException(404, f"不支持的环境: {env}，支持: {list(INSTALL_CONFIG.keys())}")
@@ -333,8 +355,9 @@ async def install_env(env: str, background_tasks: BackgroundTasks):
 
 
 @app.get("/install/status/{task_id}")
-async def install_status(task_id: str):
+def install_status(task_id: str, authorization: Optional[str] = Header(None)):
     """查询安装任务状态"""
+    _require_admin(authorization)
     if task_id not in _install_tasks:
         raise HTTPException(404, "安装任务不存在")
     return _install_tasks[task_id]
@@ -397,8 +420,9 @@ def _with_local_fallback(reply: str, local_factory) -> str:
 
 
 @app.post("/ai/chat")
-async def ai_chat(req: AIChatRequest):
+def ai_chat(req: AIChatRequest, authorization: Optional[str] = Header(None)):
     """AI 对话接口 - 支持问题检测、知识点讲解"""
+    user = _current_user(authorization)
     session_id = req.session_id or f"sess_{uuid.uuid4().hex[:8]}"
     mode = req.mode or "normal"
 
@@ -452,6 +476,7 @@ async def ai_chat(req: AIChatRequest):
     entry = {
         "session_id": session_id,
         "timestamp": datetime.now().isoformat(),
+        "user_id": user["id"],
         "user": user_msg,
         "reply": reply,
         "code_lang": lang,
@@ -525,8 +550,9 @@ def _enhanced_code_review(code: str, lang: str, provider: AIProvider) -> str:
 
 
 @app.post("/ai/explain")
-async def ai_explain(req: DiagnoseRequest):
+def ai_explain(req: DiagnoseRequest, authorization: Optional[str] = Header(None)):
     """解释代码"""
+    _current_user(authorization)
     try:
         reply = _with_local_fallback(ai.explain_code(req.code), lambda: local_ai.explain_code(req.code))
     except Exception as e:
@@ -535,8 +561,9 @@ async def ai_explain(req: DiagnoseRequest):
 
 
 @app.post("/ai/diagnose")
-async def ai_diagnose(req: DiagnoseRequest):
+def ai_diagnose(req: DiagnoseRequest, authorization: Optional[str] = Header(None)):
     """诊断错误"""
+    _current_user(authorization)
     try:
         reply = _with_local_fallback(
             ai.diagnose_error(req.error_msg or "诊断代码问题", req.code),
@@ -548,8 +575,10 @@ async def ai_diagnose(req: DiagnoseRequest):
 
 
 @app.get("/ai/history")
-async def ai_history(limit: int = 30):
-    return {"count": min(limit, len(ai_chat_history)), "items": list(reversed(ai_chat_history[-limit:]))}
+def ai_history(limit: int = 30, authorization: Optional[str] = Header(None)):
+    user = _current_user(authorization)
+    items = [e for e in reversed(ai_chat_history) if e.get("user_id") == user["id"]][:limit]
+    return {"count": len(items), "items": items}
 
 
 # ============ 代码流程图 ============
@@ -560,8 +589,9 @@ class FlowchartRequest(BaseModel):
     language: str = "auto"
 
 @app.post("/ai/flowchart")
-async def ai_flowchart(req: FlowchartRequest):
+def ai_flowchart(req: FlowchartRequest, authorization: Optional[str] = Header(None)):
     """分析代码结构，生成 Mermaid 流程图"""
+    _current_user(authorization)
     try:
         result = _gen_flowchart(req.code, req.language)
         return {
@@ -586,20 +616,23 @@ class LoginRequest(BaseModel):
 
 @app.post("/auth/register")
 def register(req: RegisterRequest):
-    existing = query_one("SELECT id FROM users WHERE username = ?", (req.username,))
-    if existing:
-        raise HTTPException(400, "用户名已存在")
+    username = req.username.strip()
+    if not username or len(username) < 2 or len(username) > 24:
+        raise HTTPException(400, "用户名至少 2 个字符")
     if len(req.password) < 8:
         raise HTTPException(400, "密码长度至少 8 位")
     if len(req.password) > 128:
         raise HTTPException(400, "密码长度不能超过 128 位")
+    existing = query_one("SELECT id FROM users WHERE username = ?", (username,))
+    if existing:
+        raise HTTPException(400, "用户名已存在")
     
     # 自动生成 target_id
     target_id = generate_target_id("student")
     
     uid = db_execute(
         "INSERT INTO users (username, password_hash, email, avatar, target_id) VALUES (?,?,?,?,?)",
-        (req.username, _hash_password(req.password), req.email, req.avatar or req.username[0], target_id),
+        (username, _hash_password(req.password), req.email, req.avatar or username[0], target_id),
     )
     new_user = query_one(
         "SELECT id, username, avatar, level, xp, streak_days, role, target_id FROM users WHERE id = ?",
@@ -766,7 +799,8 @@ def list_courses(language: Optional[str] = None, difficulty: Optional[str] = Non
     if conditions:
         sql += " WHERE " + " AND ".join(conditions)
     sql += " ORDER BY sort_order"
-    return {"count": 0, "courses": query_all(sql, tuple(params))}
+    courses = query_all(sql, tuple(params))
+    return {"count": len(courses), "courses": courses}
 
 @app.get("/courses/{course_id}")
 def get_course(course_id: int):
@@ -796,8 +830,9 @@ class CreateCourseRequest(BaseModel):
 
 
 @app.post("/courses")
-def create_course(req: CreateCourseRequest):
+def create_course(req: CreateCourseRequest, authorization: Optional[str] = Header(None)):
     """创建新课程"""
+    _require_admin(authorization)
     # 确保 image_url 和 course_url 列存在
     try:
         db_execute("ALTER TABLE courses ADD COLUMN image_url TEXT DEFAULT ''")
@@ -868,8 +903,9 @@ class CreateExerciseRequest(BaseModel):
 
 
 @app.post("/exercises")
-def create_exercise(req: CreateExerciseRequest):
+def create_exercise(req: CreateExerciseRequest, authorization: Optional[str] = Header(None)):
     """创建用户自定义题目"""
+    _require_admin(authorization)
     # 确保 expected_output 列存在
     try:
         db_execute("ALTER TABLE exercises ADD COLUMN expected_output TEXT DEFAULT ''")
@@ -1182,31 +1218,20 @@ async def room_websocket(websocket: WebSocket, code: str):
     print(f"[WebSocket] 新连接请求: 房间 {code}, 客户端: {websocket.client}")
     print(f"[WebSocket] 当前活跃房间: {list(collab_rooms.keys())}")
 
-    # WebSocket 通过 URL Query 校验登录 Token
-    params = parse_qs(websocket.url.query)
-    token = (params.get("token") or [""])[0]
-    if not token:
-        await websocket.close(code=4401, reason="缺少登录 Token")
-        return
-    try:
-        user = _current_user(f"Bearer {token}")
-    except HTTPException:
-        await websocket.close(code=4401, reason="Token 无效或已过期")
-        return
-
-    if code not in collab_rooms:
-        print(f"[WebSocket] 房间 {code} 不存在，关闭连接")
-        await websocket.close(code=4004, reason="房间不存在或已关闭")
-        return
-
     await websocket.accept()
     print(f"[WebSocket] 房间 {code} 连接已接受")
-    room = collab_rooms[code]
 
-    # 等待第一条 join 消息获取用户名
+    # Token 与用户名放在第一条 join 消息中，避免 Token 进入 URL Query 日志
     try:
-        first = await websocket.receive_text()
+        first = await asyncio.wait_for(websocket.receive_text(), timeout=15)
         data = json.loads(first)
+        token = data.get("token", "")
+        user = _current_user(f"Bearer {token}")
+        if code not in collab_rooms:
+            print(f"[WebSocket] 房间 {code} 不存在，关闭连接")
+            await websocket.close(code=4004, reason="房间不存在或已关闭")
+            return
+        room = collab_rooms[code]
         client_name = data.get("name", "")
         if not client_name or client_name != user["username"]:
             await websocket.close(code=4403, reason="用户名与登录账号不一致")
@@ -1214,6 +1239,9 @@ async def room_websocket(websocket: WebSocket, code: str):
         user_name = user["username"]
         user_role = "writer" if user_name == room.get("host") else "obs"
         user_color = data.get("color", "a")
+    except HTTPException:
+        await websocket.close(code=4401, reason="Token 无效或已过期")
+        return
     except Exception:
         await websocket.close(code=4403, reason="加入房间信息无效")
         return

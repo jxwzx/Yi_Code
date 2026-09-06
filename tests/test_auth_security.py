@@ -143,3 +143,112 @@ def test_user_cannot_read_other_user_data(client: TestClient):
             f"/admin/users/{student['user_id']}",
             headers=bearer(admin["token"]),
         )
+
+
+def test_runtime_and_admin_endpoints_require_auth(client: TestClient):
+    assert client.post("/run", json={"language": "py", "code": "print(1)"}).status_code == 401
+    assert client.get("/tasks").status_code == 401
+    assert client.get("/ai/history").status_code == 401
+    assert client.post("/install/java").status_code == 401
+    assert client.post("/courses", json={"title": "x", "language": "py"}).status_code == 401
+    assert client.post("/exercises", json={"title": "x", "language": "py"}).status_code == 401
+
+
+def test_student_cannot_publish_or_install(client: TestClient):
+    admin = client.post(
+        "/auth/login",
+        json={"username": "编程学习者", "password": "123456"},
+    ).json()
+    username = unique_username()
+    reg = client.post(
+        "/auth/register",
+        json={"username": username, "password": "SecurePass123!"},
+    )
+    assert reg.status_code == 200
+    student = reg.json()
+    try:
+        auth = bearer(student["token"])
+        assert client.post("/install/java", headers=auth).status_code == 403
+        assert client.post("/courses", json={"title": "x", "language": "py"}, headers=auth).status_code == 403
+        assert client.post("/exercises", json={"title": "x", "language": "py"}, headers=auth).status_code == 403
+    finally:
+        client.delete(
+            f"/admin/users/{student['user_id']}",
+            headers=bearer(admin["token"]),
+        )
+
+
+def test_run_history_is_isolated_per_user(client: TestClient):
+    admin = client.post(
+        "/auth/login",
+        json={"username": "编程学习者", "password": "123456"},
+    ).json()
+    auth = bearer(admin["token"])
+    result = client.post(
+        "/run",
+        headers=auth,
+        json={"language": "py", "code": "print('isolated')"},
+    ).json()
+    tasks = client.get("/tasks", headers=auth).json()
+    assert any(t.get("task_id") == result.get("task_id") for t in tasks.get("tasks", []))
+    assert all(t.get("owner_username") == "编程学习者" for t in tasks.get("tasks", []))
+
+
+def test_register_rejects_empty_username(client: TestClient):
+    resp = client.post(
+        "/auth/register",
+        json={"username": "", "password": "SecurePass123!"},
+    )
+    assert resp.status_code == 400
+
+
+def test_course_count_matches_rows(client: TestClient):
+    data = client.get("/courses").json()
+    assert data["count"] == len(data["courses"])
+
+
+def test_room_websocket_accepts_token_in_first_message(client: TestClient):
+    admin = client.post(
+        "/auth/login",
+        json={"username": "编程学习者", "password": "123456"},
+    ).json()
+    auth = bearer(admin["token"])
+    room = client.post("/rooms", headers=auth, json={"host_name": "编程学习者"}).json()
+    room_code = room["room_code"]
+    try:
+        with client.websocket_connect(f"/ws/room/{room_code}") as ws:
+            ws.send_json({
+                "token": admin["token"],
+                "name": "编程学习者",
+                "role": "writer",
+                "color": "a",
+            })
+            state = ws.receive_json()
+            assert state["type"] == "room_state"
+            assert state["host"] == "编程学习者"
+    finally:
+        client.delete(f"/rooms/{room_code}", headers=auth)
+
+
+def test_install_status_requires_auth(client: TestClient):
+    assert client.get("/install/status/any-task").status_code == 401
+
+
+def test_run_input_limits(client: TestClient):
+    admin = client.post(
+        "/auth/login",
+        json={"username": "编程学习者", "password": "123456"},
+    ).json()
+    auth = bearer(admin["token"])
+    oversized = client.post(
+        "/run",
+        headers=auth,
+        json={"language": "py", "code": "x" * 200_001},
+    )
+    assert oversized.status_code == 422
+    long_timeout = client.post(
+        "/run",
+        headers=auth,
+        json={"language": "py", "code": "print(1)", "timeout": 61},
+    )
+    assert long_timeout.status_code == 422

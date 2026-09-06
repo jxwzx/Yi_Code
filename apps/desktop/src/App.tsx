@@ -221,7 +221,7 @@ export default function App() {
           </div>
           {page === 'learn' && <LearnCenter setPage={setPagePersist} onOpenExercise={openExercise} searchQuery={searchQuery} />}
           {page === 'classroom' && <ClassroomView setPage={setPagePersist} />}
-          {page === 'envcheck' && <EnvCheck />}
+          {page === 'envcheck' && <EnvCheck canManageEnv={currentUser.role === 'admin' || currentUser.role === 'super_admin'} />}
           {page === 'admin' && <AdminPanel currentUser={currentUser} />}
         </div>
       </div>
@@ -1229,25 +1229,27 @@ function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId, isDarkT
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ language: lang, code })
       })
-      if (resp.ok) {
-        const data = await resp.json()
-        // 后端 /run 是同步执行，直接返回 stdout/stderr
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
-        if (data.success !== false) {
-          const outLines: Array<{ type: string; text: string }> = [
-            { type: 'meta', text: `[YiCode] ${data.language || lang} · 耗时 ${data.elapsed_seconds || elapsed}s · 退出码 ${data.exit_code}` },
-          ]
-          if (data.stdout) outLines.push({ type: 'success', text: data.stdout })
-          if (data.stderr) outLines.push({ type: 'error', text: data.stderr })
-          if (!data.stdout && !data.stderr) {
-            outLines.push({ type: 'warn', text: '（程序执行无输出，请检查你的代码是否包含 print/console.log/cout 等输出语句）' })
-          }
-          if (data.error) outLines.push({ type: 'error', text: data.error })
-          setOutput(prev => [...prev, ...outLines])
-          setRunning(false)
-          return
-        }
+      const data = await resp.json()
+      if (!resp.ok) {
+        const detail = data?.detail || (typeof data === 'string' ? data : `HTTP ${resp.status}`)
+        setOutput([{ type: 'error', text: `[服务端] ${detail}` }])
+        setRunning(false)
+        return
       }
+      // 后端 /run 是同步执行，直接返回 stdout/stderr
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+      const outLines: Array<{ type: string; text: string }> = [
+        { type: 'meta', text: `[YiCode] ${data.language || lang} · 耗时 ${data.elapsed_seconds || elapsed}s · 退出码 ${data.exit_code}` },
+      ]
+      if (data.stdout) outLines.push({ type: 'success', text: data.stdout })
+      if (data.stderr) outLines.push({ type: 'error', text: data.stderr })
+      if (data.error) outLines.push({ type: 'error', text: data.error })
+      if (!data.stdout && !data.stderr && !data.error) {
+        outLines.push({ type: 'warn', text: '（程序执行无输出，请检查你的代码是否包含 print/console.log/cout 等输出语句）' })
+      }
+      setOutput(prev => [...prev, ...outLines])
+      setRunning(false)
+      return
     } catch { /* 后端离线时使用本地模拟 */ }
 
     // 本地模拟执行（保证前端界面可用）
@@ -1363,9 +1365,11 @@ function CodeEditor({ onRunStatus: _, exercise, onClearExercise, userId, isDarkT
               <button className="btn btn-outline" onClick={() => {
                 const blob = new Blob([code], { type: 'text/plain' })
                 const a = document.createElement('a')
-                a.href = URL.createObjectURL(blob)
+                const url = URL.createObjectURL(blob)
+                a.href = url
                 a.download = `main.${lang}`
                 a.click()
+                setTimeout(() => URL.revokeObjectURL(url), 1000)
               }}>
                 <i className="fas fa-download"></i> 下载
               </button>
@@ -1711,6 +1715,8 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
   const [copied, setCopied] = useState('')
   const [writeRequests, setWriteRequests] = useState<string[]>([]) // 申请写权限的用户名列表
   const [writeRequested, setWriteRequested] = useState(false) // 当前用户是否已申请
+  const [running, setRunning] = useState(false)
+  const [output, setOutput] = useState<Array<{ type: string; text: string }>>([])
 
   const wsRef = useRef<WebSocket | null>(null)
   const syncTimer = useRef<number | null>(null)
@@ -1724,10 +1730,6 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
     const headers: Record<string, string> = {}
     if (token) headers['Authorization'] = `Bearer ${token}`
     return headers
-  }
-  const withToken = (url: string): string => {
-    const sep = url.includes('?') ? '&' : '?'
-    return `${url}${sep}token=${encodeURIComponent(token || '')}`
   }
   const sendWS = (msg: Record<string, unknown>) => {
     const ws = wsRef.current
@@ -1778,6 +1780,54 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
     }])
     setChatInput('')
   }
+  const runCode = async () => {
+    setRunning(true)
+    setOutput([])
+    const startTime = Date.now()
+    setOutput([{ type: 'meta', text: `[YiCode] 正在启动 ${COLLAB_LANGS.find(l => l.key === lang)?.label || lang} 运行环境...` }])
+    try {
+      const resp = await fetch(API_BASE + '/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ language: lang, code }),
+      })
+      const data = await resp.json()
+      if (!resp.ok) {
+        setOutput([
+          { type: 'error', text: data?.detail ? `[服务端] ${data.detail}` : `[服务端] HTTP ${resp.status}` },
+        ])
+        setRunning(false)
+        return
+      }
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+      const outLines: Array<{ type: string; text: string }> = [
+        { type: 'meta', text: `[YiCode] ${data.language || lang} · 耗时 ${data.elapsed_seconds || elapsed}s · 退出码 ${data.exit_code}` },
+      ]
+      if (data.stdout) outLines.push({ type: 'success', text: data.stdout })
+      if (data.stderr) outLines.push({ type: 'error', text: data.stderr })
+      if (data.error) outLines.push({ type: 'error', text: data.error })
+      if (!data.stdout && !data.stderr && !data.error) {
+        outLines.push({ type: 'warn', text: '（程序执行无输出，请检查是否包含 print/console.log/cout 等输出语句）' })
+      }
+      setOutput(outLines)
+    } catch {
+      // 后端不可达时使用本地模拟，保证前端仍可演示
+      await new Promise(r => setTimeout(r, 800))
+      const results = simulateRun(lang, code)
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
+      const lines: Array<{ type: string; text: string }> = [
+        { type: 'meta', text: `[本地模拟] ${lang} · 耗时 ${elapsed}s` },
+      ]
+      if (results.stdout) lines.push({ type: 'success', text: results.stdout })
+      if (results.stderr) lines.push({ type: 'error', text: results.stderr })
+      if (!results.stdout && !results.stderr) {
+        lines.push({ type: 'warn', text: '（程序执行无输出，请检查是否包含 print/console.log/cout 等输出语句）' })
+      }
+      setOutput(lines)
+    } finally {
+      setRunning(false)
+    }
+  }
   const leaveRoom = (reason?: string, clearStorage = true) => {
     if (syncTimer.current) { clearTimeout(syncTimer.current); syncTimer.current = null }
     const ws = wsRef.current
@@ -1790,6 +1840,7 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
     setChatMessages([]); setChatInput('')
     setCreated(null); setJoinCode('')
     setWriteRequests([]); setWriteRequested(false)
+    setRunning(false); setOutput([])
     setErr(reason || '')
   }
   // WebSocket 生命周期：挂载时检查 localStorage 自动重连，卸载时不关闭 WS（刷新时让浏览器自然处理）
@@ -1817,13 +1868,13 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
     setErr('')
     let everOpen = false
     try {
-      const ws = new WebSocket(withToken(wsUrl))
+      const ws = new WebSocket(wsUrl)
       wsRef.current = ws
       ws.onopen = () => {
         everOpen = true
         // 房主默认为 writer，其他成员默认为 obs（需要申请写权限）
         const defaultRole = userName === hostName ? 'writer' : 'obs'
-        ws.send(JSON.stringify({ name: userName, role: defaultRole, color }))
+        ws.send(JSON.stringify({ token, name: userName, role: defaultRole, color }))
       }
       ws.onmessage = (ev: MessageEvent) => {
         let data: Record<string, any>
@@ -2168,6 +2219,15 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
                     <i className="fas fa-undo"></i> 重置
                   </button>
                 )}
+                <div style={{ flex: 1 }} />
+                <button
+                  className={`btn ${running ? 'btn-secondary' : 'btn-success'}`}
+                  style={{ padding: '4px 14px', fontSize: 12 }}
+                  onClick={runCode}
+                  disabled={running}
+                >
+                  <i className={`fas ${running ? 'fa-spinner fa-spin' : 'fa-play'}`}></i> {running ? '执行中...' : '运行代码'}
+                </button>
               </div>
             </div>
             <div className="code-editor-area">
@@ -2184,6 +2244,17 @@ function CollabChannel({ username, token, isDarkTheme }: { username?: string; to
                 height="100%"
               />
             </div>
+            {output.length > 0 && (
+              <div style={{ flex: '0 0 auto', maxHeight: 180, overflow: 'auto', background: 'var(--bg-main)', borderTop: '1px solid var(--border)', padding: '8px 12px', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, lineHeight: 1.7 }}>
+                {output.map((o, i) => (
+                  <div key={i} style={{
+                    color: o.type === 'error' ? '#ef4444' : o.type === 'success' ? 'var(--text-primary)' : o.type === 'warn' ? '#f59e0b' : 'var(--text-muted)',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-all',
+                  }}>{o.text}</div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

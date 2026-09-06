@@ -18,7 +18,7 @@ interface SelfTestResult {
   error?: string
 }
 
-export function EnvCheck() {
+export function EnvCheck({ canManageEnv }: { canManageEnv?: boolean }) {
   const [runtimes, setRuntimes] = useState<Record<string, RuntimeInfo>>({})
   const [loading, setLoading] = useState(true)
   const [selfTest, setSelfTest] = useState<Record<string, SelfTestResult> | null>(null)
@@ -63,6 +63,10 @@ export function EnvCheck() {
       cs: '.NET SDK 8',
     }
     if (!installableEnvs[env]) return
+    if (!canManageEnv) {
+      setInstallStatus(prev => ({ ...prev, [env]: { status: 'error', progress: '仅管理员可安装' } }))
+      return
+    }
 
     setInstallStatus(prev => ({ ...prev, [env]: { status: 'installing', progress: '开始下载...' } }))
 
@@ -231,7 +235,7 @@ export function EnvCheck() {
                 <i className="fas fa-wrench" style={{ marginRight: '6px' }}></i>
                 {installGuide[key] || '请安装对应编译器/解释器'}
                 {/* 一键安装按钮（java/cpp/go/cs） */}
-                {(key === 'java' || key === 'cpp' || key === 'go' || key === 'cs') && (
+                {(key === 'java' || key === 'cpp' || key === 'go' || key === 'cs') && canManageEnv && (
                   <button
                     className="btn btn-primary"
                     style={{ marginTop: '8px', width: '100%', justifyContent: 'center', fontSize: '13px', padding: '6px 12px' }}
@@ -256,6 +260,11 @@ export function EnvCheck() {
                       </>
                     )}
                   </button>
+                )}
+                {(key === 'java' || key === 'cpp' || key === 'go' || key === 'cs') && !canManageEnv && (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                    <i className="fas fa-lock" style={{ marginRight: 4 }}></i>环境安装仅限管理员操作
+                  </div>
                 )}
               </div>
             )}
@@ -303,4 +312,3 @@ export function EnvCheck() {
     </div>
   )
 }
-
