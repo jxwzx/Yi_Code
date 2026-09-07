@@ -118,11 +118,14 @@ export default function App() {
   })
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  // 移动端侧边栏抽屉开关
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // 包裹 setPage：同时持久化到 localStorage（刷新后保持当前页）
   const setPagePersist = (p: PageKey) => {
     setPage(p)
     localStorage.setItem('yicode_page', p)
+    setSidebarOpen(false) // 移动端选择菜单后自动收起抽屉
   }
 
   // 打开题目：设置当前题目并跳转到编辑器，同时持久化到 localStorage
@@ -164,7 +167,7 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar page={page} setPage={setPagePersist} user={currentUser} onLogout={handleLogout} />
+      <Sidebar page={page} setPage={setPagePersist} user={currentUser} onLogout={handleLogout} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main-content">
         <Topbar
           icon={topbarTitle[page].icon}
@@ -174,6 +177,7 @@ export default function App() {
           onLogout={handleLogout}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
+          onMenuClick={() => setSidebarOpen(true)}
         />
         <div className="content-area">
           {page === 'dashboard' && <Dashboard setPage={setPagePersist} userId={currentUser.user_id} />}
@@ -333,9 +337,10 @@ function LoginPage({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
 }
 
 // ============== 侧边栏 ==============
-function Sidebar({ page, setPage, user, onLogout }: {
+function Sidebar({ page, setPage, user, onLogout, open, onClose }: {
   page: PageKey; setPage: (p: PageKey) => void
   user: CurrentUser; onLogout: () => void
+  open: boolean; onClose: () => void
 }) {
   const nav = (key: PageKey, icon: string, label: string, badge?: string) => (
     <div
@@ -356,7 +361,10 @@ function Sidebar({ page, setPage, user, onLogout }: {
   }
 
   return (
-    <aside className="sidebar">
+    <>
+      {/* 移动端抽屉遮罩 */}
+      {open && <div className="sidebar-overlay" onClick={onClose} />}
+      <aside className={`sidebar ${open ? 'sidebar-open' : ''}`}>
       <div className="sidebar-logo">
         <div className="logo-icon"><i className="fas fa-infinity"></i></div>
         <div className="logo-text">
@@ -404,15 +412,17 @@ function Sidebar({ page, setPage, user, onLogout }: {
           </button>
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   )
 }
 
 // ============== 顶部栏 ==============
-function Topbar({ icon, title, setRunStatus, user, onLogout, searchQuery, setSearchQuery }: {
+function Topbar({ icon, title, setRunStatus, user, onLogout, searchQuery, setSearchQuery, onMenuClick }: {
   icon: string; title: string; setRunStatus: (s: { id: string; logFile: string } | null) => void
   user: CurrentUser; onLogout: () => void
   searchQuery: string; setSearchQuery: (q: string) => void
+  onMenuClick: () => void
 }) {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('yicode_ai_token') || '')
   const [showApiKeyInput, setShowApiKeyInput] = useState(false)
@@ -460,6 +470,10 @@ function Topbar({ icon, title, setRunStatus, user, onLogout, searchQuery, setSea
 
   return (
     <div className="topbar">
+      {/* 移动端汉堡菜单 */}
+      <button className="menu-btn" title="菜单" onClick={onMenuClick}>
+        <i className="fas fa-bars"></i>
+      </button>
       <div className="topbar-title">
         <i className={`fas ${icon}`}></i>
         {title}

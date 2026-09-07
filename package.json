@@ -1,0 +1,11 @@
+{
+  "name": "yicode",
+  "version": "0.20.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev-all.mjs",
+    "dev:web": "npm run dev:web --prefix apps/desktop",
+    "dev:api": "npm run dev:api --prefix apps/desktop",
+    "build": "npm run build --prefix apps/desktop"
+  }
+}
